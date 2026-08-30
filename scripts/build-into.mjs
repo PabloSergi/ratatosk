@@ -5,7 +5,7 @@
  * thing without the browser in front of it — the maintenance path, for filling an account with robots
  * for sources it already had, or retrying the ones that did not come out the first time.
  *
- *   node scripts/build-into.mjs <userId> <url> <name> "<what is wanted>" [--proxy <proxyId>]
+ *   node scripts/build-into.mjs <userId> <url> <name> "<what is wanted>" [--proxy <id>] [--model <model>]
  *
  * Nothing is passed in by hand: the key, the model and the proxy are the ones that account chose.
  */
@@ -20,8 +20,14 @@ import { activeConnection, settingsFileFor } from '../dist/settings.js';
 const args = process.argv.slice(2);
 const proxyIndex = args.indexOf('--proxy');
 const proxyId = proxyIndex >= 0 ? args[proxyIndex + 1] : undefined;
+// The account's own model builds by default. A cheap one is the right choice for most lists and the
+// wrong one for an awkward page, and switching the account's setting to rebuild one scraper is a
+// heavier act than saying so here.
+const modelIndex = args.indexOf('--model');
+const model = modelIndex >= 0 ? args[modelIndex + 1] : undefined;
 // A missing --proxy is index -1, and -1 + 1 is 0 — which would quietly eat the first argument.
-const rest = proxyIndex >= 0 ? args.filter((_, index) => index !== proxyIndex && index !== proxyIndex + 1) : args;
+const flagged = new Set([proxyIndex, proxyIndex + 1, modelIndex, modelIndex + 1].filter((index) => index >= 1));
+const rest = args.filter((_, index) => !flagged.has(index));
 const [userId, url, name, want] = rest;
 
 if (!userId || !url || !name) {
@@ -56,7 +62,7 @@ const session = await openBrowser({
   ...(proxy ? { proxy: await toRunningBrowser(proxy) } : {}),
 });
 
-console.log(`building ${name} with ${connection.model}${proxy ? ` through ${proxy.label}` : ''}`);
+console.log(`building ${name} with ${model ?? connection.model}${proxy ? ` through ${proxy.label}` : ''}`);
 
 try {
   const result = await buildWithModel(session.page, {
@@ -65,7 +71,7 @@ try {
     want: want ?? 'the list on this page: title, link, location and pay if shown',
     rules,
     apiKey: connection.key,
-    model: connection.model,
+    model: model ?? connection.model,
     baseUrl: connection.baseUrl,
   });
 
