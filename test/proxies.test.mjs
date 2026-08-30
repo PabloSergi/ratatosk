@@ -10,8 +10,8 @@ const file = join(dir, 'user.json');
 test.afterAll(() => rm(dir, { recursive: true, force: true }));
 
 test('an address is understood, or refused with a reason', () => {
-  const parsed = parse('http://bob:s3cret@1.2.3.4:8080');
-  assert.deepEqual(parsed, { scheme: 'http', host: '1.2.3.4:8080', username: 'bob', password: 's3cret' });
+  const parsed = parse('http://bob:placeholder@1.2.3.4:8080');
+  assert.deepEqual(parsed, { scheme: 'http', host: '1.2.3.4:8080', username: 'bob', password: 'placeholder' });
   assert.equal(parse('socks5://1.2.3.4:1080').scheme, 'socks5');
   assert.equal(parse('1.2.3.4:8080').scheme, 'http', 'a bare host:port is taken as http');
 
@@ -20,13 +20,13 @@ test('an address is understood, or refused with a reason', () => {
 });
 
 test('the browser gets the credentials, the interface never does', async () => {
-  const proxy = await addProxy(file, { url: 'http://bob:s3cret@1.2.3.4:8080', label: 'spain' });
-  assert.deepEqual(toBrowser(proxy), { server: 'http://1.2.3.4:8080', username: 'bob', password: 's3cret' });
+  const proxy = await addProxy(file, { url: 'http://bob:placeholder@1.2.3.4:8080', label: 'spain' });
+  assert.deepEqual(toBrowser(proxy), { server: 'http://1.2.3.4:8080', username: 'bob', password: 'placeholder' });
 
   const shown = view(proxy);
   assert.equal(shown.host, '1.2.3.4:8080');
   assert.equal(shown.user, 'bo…', 'the user is hinted, not printed');
-  assert.ok(!JSON.stringify(shown).includes('s3cret'), 'the password must not be in the view');
+  assert.ok(!JSON.stringify(shown).includes('placeholder'), 'the password must not be in the view');
 });
 
 test('proxies are stored for the owner alone', async () => {

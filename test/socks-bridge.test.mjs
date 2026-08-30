@@ -69,23 +69,23 @@ afterAll(async () => {
 });
 
 test('carries an http request through socks5 with a username and password', async () => {
-  const socks = await fakeSocks({ user: 'bob', password: 's3cret' });
+  const socks = await fakeSocks({ user: 'bob', password: 'placeholder' });
   const site = await fakeSite('hello from the far side');
-  const bridge = await startBridge({ host: '127.0.0.1', port: socks.port, username: 'bob', password: 's3cret' });
+  const bridge = await startBridge({ host: '127.0.0.1', port: socks.port, username: 'bob', password: 'placeholder' });
   open.push(socks.server, site.server);
 
   // Absolute-form, which is how a client asks a proxy for a plain http page.
   const text = await through(bridge.port, `GET http://127.0.0.1:${site.port}/ HTTP/1.1\r\nhost: 127.0.0.1:${site.port}\r\nconnection: close\r\n\r\n`);
   assert.match(text, /hello from the far side/);
-  assert.deepEqual(socks.attempts.at(-1), { user: 'bob', password: 's3cret' });
+  assert.deepEqual(socks.attempts.at(-1), { user: 'bob', password: 'placeholder' });
 
   await bridge.close();
 });
 
 test('opens a tunnel for CONNECT, which is what a browser uses for https', async () => {
-  const socks = await fakeSocks({ user: 'bob', password: 's3cret' });
+  const socks = await fakeSocks({ user: 'bob', password: 'placeholder' });
   const site = await fakeSite('through the tunnel');
-  const bridge = await startBridge({ host: '127.0.0.1', port: socks.port, username: 'bob', password: 's3cret' });
+  const bridge = await startBridge({ host: '127.0.0.1', port: socks.port, username: 'bob', password: 'placeholder' });
   open.push(socks.server, site.server);
 
   const socket = connect({ host: '127.0.0.1', port: bridge.port });
@@ -103,8 +103,8 @@ test('opens a tunnel for CONNECT, which is what a browser uses for https', async
 });
 
 test('says plainly when the proxy refuses the password', async () => {
-  const socks = await fakeSocks({ user: 'bob', password: 's3cret' });
-  const bridge = await startBridge({ host: '127.0.0.1', port: socks.port, username: 'bob', password: 'wrong' });
+  const socks = await fakeSocks({ user: 'bob', password: 'placeholder' });
+  const bridge = await startBridge({ host: '127.0.0.1', port: socks.port, username: 'bob', password: 'not-the-one' });
   open.push(socks.server);
 
   const answer = await through(bridge.port, 'GET http://example.com/ HTTP/1.1\r\nhost: example.com\r\nconnection: close\r\n\r\n');
