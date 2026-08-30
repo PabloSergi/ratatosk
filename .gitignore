@@ -1,0 +1,19 @@
+node_modules/
+dist/
+public/
+coverage/
+test-results/
+playwright-report/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+
+# What an installation collects: accounts, their robots, and everything those robots learned.
+secrets/
+robots/
+profiles/
+history/
+memory/
+e2e/.data/

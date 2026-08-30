@@ -1,0 +1,13 @@
+# The build context is what gets handed to the daemon, and a context that is "everything" is both slow
+# and dangerous: a stray copy of somebody's home directory once landed here, certificates and all.
+# Name what belongs in an image; refuse the rest.
+*
+!package.json
+!package-lock.json
+!tsconfig.json
+!docker-entrypoint.sh
+!src
+!web
+!scripts
+!rules
+!examples

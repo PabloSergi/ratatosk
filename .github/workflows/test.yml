@@ -1,0 +1,43 @@
+# Two suites, because they answer different questions. The first asks whether the parts are right and
+# runs in seconds without a browser; the second asks whether the product works, in a real browser,
+# against a job board that exists only for the tests. Neither touches the internet: a suite that
+# depends on somebody else's site fails when somebody else deploys, and people learn to ignore it.
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm run coverage
+
+  product:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps chromium
+      # The e2e server drives a real browser through patchright, which brings its own Chromium.
+      - run: npx patchright install --with-deps chromium
+      - run: npm run build
+      - run: npm run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: what-the-browser-saw
+          path: test-results/
+          retention-days: 7

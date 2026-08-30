@@ -1,0 +1,11 @@
+{
+  "name": "telegram channel preview",
+  "match": "t.me/s/",
+  "pagination": {
+    "type": "param",
+    "param": "before",
+    "from": "*",
+    "maxPages": 20,
+    "pick": "min"
+  }
+}

@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ratatosk</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header>
+  <h1><i class="mark" aria-hidden="true">ᚱ</i>Ratatosk <span>robots that say when they break</span></h1>
+  <div id="who" class="meta" hidden></div>
+  <nav id="views" class="app" hidden>
+    <button class="view-tab on" data-view="robots">Robots</button>
+    <button class="view-tab" data-view="runs">Runs</button>
+    <button class="view-tab" data-view="model">Model</button>
+    <button class="view-tab" data-view="proxies">Proxies</button>
+    <button class="view-tab" data-view="telegram">Telegram</button>
+  </nav>
+</header>
+
+<main>
+  <section id="authBox" hidden>
+    <h2>Sign in</h2>
+    <div class="row"><input type="text" id="authEmail" placeholder="email" autocomplete="username"></div>
+    <div class="row spaced"><input type="password" id="authPassword" placeholder="password" autocomplete="current-password"></div>
+    <div class="row spaced">
+      <button class="primary" id="authLogin">Sign in</button>
+      <button id="authRegister">Create account</button>
+    </div>
+    <div id="authNote" class="meta">
+      Your robots, your keys and your data are yours alone — every account gets its own.
+    </div>
+  </section>
+
+  <!-- ROBOTS ---------------------------------------------------------------------------------->
+  <section class="app" data-view="robots" hidden>
+    <h2>Build a robot</h2>
+
+    <div class="tabs" id="sourceTabs">
+      <button class="tab on" data-source="web">website</button>
+      <button class="tab" data-source="telegram">telegram</button>
+    </div>
+
+    <div id="sourceWeb">
+      <div class="row">
+        <input type="text" id="url" placeholder="https://example.com/jobs" autocomplete="off">
+        <input type="text" id="name" placeholder="name (optional)" class="narrow">
+      </div>
+      <textarea id="want" rows="2" placeholder="what to pull out, in your own words — e.g. vacancies: title, salary, city, link, date posted"></textarea>
+      <div class="row spaced">
+        <label for="buildProxy" class="meta">through</label>
+        <select id="buildProxy"><option value="">direct</option></select>
+        <button class="primary" id="agent">Build with model</button>
+        <button id="draft">Build without model — free</button>
+        <button id="takeoverOpen" title="opens this address in the robot's own browser, through the proxy chosen here">Open it myself</button>
+      </div>
+      <div id="takeoverNote" class="meta spaced" hidden></div>
+      <p class="meta">
+        <b>With the model</b> — it works the page through the tools and fixes its own selectors: fractions of
+        a cent, and it handles awkward sites. <b>Without</b> — the same steps by plain rules, instant and free.
+        <b>Open it myself</b> — for a door meant for a person: a check, a login, an age gate. You pass it by
+        hand and what the site leaves behind stays in this robot's profile.
+      </p>
+      <div id="buildOut"></div>
+    </div>
+
+    <div id="sourceTelegram" hidden>
+      <p class="meta" id="tgRobotNote"></p>
+      <div class="row">
+        <input type="text" id="tgChannels" placeholder="channels and groups by username: pythonjobs, remote_work">
+        <input type="text" id="tgRobotName" placeholder="robot name" class="narrow">
+      </div>
+      <textarea id="tgWant" rows="2" placeholder="what counts, in your own words — e.g. вакансии: ищем людей на работу, не резюме, не продажа аккаунтов"></textarea>
+      <div class="row spaced">
+        <label for="tgAccount" class="meta">read as</label>
+        <select id="tgAccount"></select>
+        <input type="text" id="tgLimit" placeholder="messages" value="100" class="tiny">
+        <input type="text" id="tgContains" placeholder="or just a word it must contain">
+        <button class="primary" id="tgCreate">Create robot</button>
+      </div>
+      <p class="meta">
+        A channel decides nothing about what a message is: postings, CVs, someone selling accounts and
+        someone saying “up” arrive through the same pipe. Say what you are after and the model reads a
+        sample of real messages and writes the rule that separates them — kept only if it demonstrably
+        does. After that it runs as plain patterns: no model, no cost per message.
+      </p>
+    </div>
+  </section>
+
+  <section class="app" data-view="robots" hidden>
+    <h2>Robots</h2>
+    <div class="tabs" id="kinds"></div>
+    <div id="robots" class="meta">loading…</div>
+  </section>
+
+  <!-- RUNS ------------------------------------------------------------------------------------>
+  <section class="app" data-view="runs" hidden>
+    <h2>How the robots are doing</h2>
+    <div id="runsStatus" class="meta">checking…</div>
+    <p class="meta">
+      A robot that returns eleven rows tells you nothing; eleven where yesterday there were four hundred
+      tells you the site changed under it. Every run leaves a line here — what came back, how long it
+      took, and why it stopped there.
+    </p>
+    <div id="runsList"></div>
+
+    <h2 class="spaced">Keys for machines</h2>
+    <p class="meta">
+      A schedule in n8n, a cron, somebody else's script — they need a credential that outlives a login.
+      Your own token expires in a month; a key does not, is named so you know a year later what it was
+      for, and is revoked on its own without disturbing the others. See
+      <a href="https://github.com/ratatosk/ratatosk/blob/main/docs/n8n.md">docs/n8n.md</a> for the exact
+      setup.
+    </p>
+    <div class="row">
+      <input type="text" id="keyLabel" placeholder="what will use it — e.g. n8n nightly">
+      <button class="primary" id="keyCreate">Make a key</button>
+    </div>
+    <div id="keysStatus" class="meta spaced"></div>
+    <div id="keysList"></div>
+  </section>
+
+  <!-- MODEL ----------------------------------------------------------------------------------->
+  <section class="app" data-view="model" hidden>
+    <h2>Model connections</h2>
+    <p class="meta">
+      Two different jobs. <b>Builds</b> writes a robot or a rule — once, carefully, and worth a good
+      model. <b>Runs</b> is the second opinion on borderline rows: it happens on every run, forever, so
+      it wants the cheapest thing that can read. One connection can do both; two usually cost less.
+    </p>
+    <div id="llmStatus" class="meta">checking…</div>
+    <div id="llmList"></div>
+
+    <h2 class="spaced">Add a connection</h2>
+    <ol class="guide" id="llmGuide">
+      <li>Pick a provider and open its key page — the link appears once you choose one.</li>
+      <li>Create a key there and paste it below. It is stored for your account only, shown afterwards
+        as its last four characters, and deletable here.</li>
+      <li>Choose a model. The list is read from that provider, not compiled in.</li>
+    </ol>
+
+    <div class="row spaced">
+      <select id="llmProvider"></select>
+      <input type="text" id="llmBaseUrl" placeholder="base URL" hidden>
+      <input type="password" id="llmKey" placeholder="key" autocomplete="off">
+      <button id="llmLoad">Load models</button>
+    </div>
+    <div class="row spaced">
+      <select id="llmModel"><option value="">— models appear after the key —</option></select>
+      <input type="text" id="llmLabel" placeholder="name it (optional)" class="narrow">
+      <button class="primary" id="llmAdd">Add connection</button>
+      <span class="meta" id="llmModelNote"></span>
+    </div>
+  </section>
+
+  <!-- PROXIES --------------------------------------------------------------------------------->
+  <section class="app" data-view="proxies" hidden>
+    <h2>Proxies</h2>
+    <div id="proxyStatus" class="meta">checking…</div>
+    <div id="proxyList"></div>
+
+    <h2 class="spaced">Add a proxy</h2>
+    <div class="row">
+      <select id="proxyScheme">
+        <option value="http">HTTP</option>
+        <option value="https">HTTPS</option>
+        <option value="socks5">SOCKS5</option>
+      </select>
+      <input type="text" id="proxyHost" placeholder="host or IP — 198.51.100.7">
+      <input type="text" id="proxyPort" placeholder="port" class="tiny">
+    </div>
+    <div class="row spaced">
+      <input type="text" id="proxyUser" placeholder="username (leave empty if none)">
+      <input type="password" id="proxyPass" placeholder="password">
+      <input type="text" id="proxyLabel" placeholder="name it (optional)" class="narrow">
+      <button class="primary" id="proxyAdd">Add proxy</button>
+    </div>
+    <p class="meta">
+      Sites block by address, not by selector — a page that answers “here is your IP” is not going to be
+      talked round. A robot remembers the proxy it was built through and keeps using it; each address gets
+      its own browser profile, so identities never mix.
+    </p>
+  </section>
+
+  <!-- TELEGRAM -------------------------------------------------------------------------------->
+  <section class="app" data-view="telegram" hidden>
+    <h2>Telegram accounts</h2>
+    <div id="tgStatus" class="meta">checking…</div>
+    <div id="tgList"></div>
+
+    <h2 class="spaced">Connect an account</h2>
+    <p class="meta">
+      Public <b>channels</b> need none of this — build a robot for <code>t.me/s/&lt;channel&gt;</code> like any
+      other page. <b>Groups</b> have no web page at all, so reading one means being a member, which means a
+      Telegram account. Connect as many as you like; a robot names the one it reads with.
+    </p>
+
+    <ol class="wizard">
+      <li id="tgStep1" class="here">
+        <h3>Get an api_id and an api_hash</h3>
+        <p class="meta">
+          Open <a href="https://my.telegram.org" target="_blank" rel="noreferrer">my.telegram.org</a> → log in with
+          the phone number of that account → <b>API development tools</b>. Fill <i>App title</i> and <i>Short name</i>
+          with anything (for example <code>ratatosk</code>) and press <b>Create application</b>. The page then shows
+          <b>App api_id</b> — a number — and <b>App api_hash</b> — 32 characters.
+        </p>
+        <div class="row">
+          <input type="text" id="tgApiId" placeholder="api_id — e.g. 2040123" class="narrow">
+          <input type="text" id="tgApiHash" placeholder="api_hash — 32 characters">
+          <input type="text" id="tgPhone" placeholder="+34600000000" class="narrow">
+          <button class="primary" id="tgSend">Send me the code</button>
+        </div>
+      </li>
+
+      <li id="tgStep2">
+        <h3>Type the code Telegram just sent</h3>
+        <p class="meta">
+          It arrives <b>inside Telegram</b>, from the account called “Telegram” — not by SMS, unless no other
+          device is signed in. If that account has two-step verification, its password goes in the second field;
+          otherwise leave it empty.
+        </p>
+        <div class="row">
+          <input type="text" id="tgCode" placeholder="12345" class="narrow">
+          <input type="password" id="tgPassword" placeholder="two-step password, only if you have one">
+          <button class="primary" id="tgSignIn">Connect</button>
+        </div>
+      </li>
+
+      <li id="tgStep3">
+        <h3>Build a robot with it</h3>
+        <p class="meta">Robots are made in <b>Robots</b> → <i>telegram</i>, where you choose which account reads which channels.</p>
+      </li>
+    </ol>
+  </section>
+
+  <section class="app" id="resultBox" data-view="any" hidden>
+    <h2 id="resultTitle">Result</h2>
+    <div id="result"></div>
+  </section>
+</main>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

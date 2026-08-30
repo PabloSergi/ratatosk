@@ -1,0 +1,76 @@
+services:
+  # The operator view. Bound to localhost on purpose: reach it over an SSH tunnel, not over the internet.
+  web:
+    build: .
+    image: ratatosk:local
+    container_name: ratatosk-web
+    restart: unless-stopped
+    command: ["node", "dist/web.js"]
+    ports:
+      - "127.0.0.1:5544:5544"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 5544
+      # No API key here on purpose: every account adds its own in the web view, stored per account.
+      RATATOSK_MODEL: ${RATATOSK_MODEL:-qwen/qwen3.7-flash}
+      # One browser per account, capped: a headed Chromium is not free.
+      RATATOSK_MAX_BROWSERS: ${RATATOSK_MAX_BROWSERS:-3}
+      RATATOSK_PROFILES: /app/profiles
+      RATATOSK_HISTORY: /app/history
+      RATATOSK_MEMORY: /app/memory
+      # debug | info | warn | error — one JSON line per event, read them with the logs service below.
+      RATATOSK_LOG: ${RATATOSK_LOG:-info}
+    volumes:
+      - ./robots:/app/robots
+      # What every robot did, kept across deploys: this is the product's memory, not a cache.
+      - ./history:/app/history
+      # What each robot has already returned, so a posting reposted every ten minutes is news once.
+      - ./memory:/app/memory
+      - ./rules:/app/rules:ro
+      - browser-profiles:/app/profiles
+      # The Telegram session belongs to whoever logged in — it lives here and nowhere else.
+      - account-secrets:/app/secrets
+    # A browser eats whatever it is given. The swap limit matters more than the memory one: without it
+    # a runaway page drags the whole host into swap instead of the container dying alone.
+    mem_limit: 5g
+    memswap_limit: 5g
+    shm_size: 1g
+
+  # The MCP server speaks stdio, so a client starts it on demand:
+  #   docker compose run --rm -T mcp
+  mcp:
+    build: .
+    image: ratatosk:local
+    profiles: ["manual"]
+    stdin_open: true
+    environment:
+      RATATOSK_MODEL: ${RATATOSK_MODEL:-qwen/qwen3.7-flash}
+      RATATOSK_LOG: ${RATATOSK_LOG:-info}
+    volumes:
+      - ./robots:/app/robots
+      - ./rules:/app/rules:ro
+    mem_limit: 2g
+    memswap_limit: 2g
+    shm_size: 1g
+
+  # Live logs of every container, searchable, in a browser. Twenty megabytes and no database — the
+  # alternative was a three-container logging stack on a box that has already died of swap once.
+  #
+  # The docker socket is mounted read-only and the port is bound to loopback: this can watch, and it is
+  # reachable only through the same tunnel as everything else here.
+  logs:
+    image: amir20/dozzle:latest
+    container_name: ratatosk-logs
+    restart: unless-stopped
+    environment:
+      DOZZLE_NO_ANALYTICS: "true"
+      DOZZLE_FILTER: "name=ratatosk"
+    ports:
+      - "127.0.0.1:5545:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    mem_limit: 256m
+
+volumes:
+  browser-profiles:
+  account-secrets:

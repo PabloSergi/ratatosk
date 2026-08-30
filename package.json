@@ -1,0 +1,56 @@
+{
+  "name": "ratatosk",
+  "version": "0.1.0",
+  "description": "Web scraping platform: a model builds the robot once, then it runs deterministically and repairs itself when the site changes",
+  "keywords": [
+    "scraping",
+    "crawler",
+    "playwright",
+    "automation",
+    "llm",
+    "mcp",
+    "no-code",
+    "self-healing"
+  ],
+  "homepage": "https://github.com/PabloSergi/ratatosk#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PabloSergi/ratatosk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PabloSergi/ratatosk/issues"
+  },
+  "author": "Pavel Sergeev",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p web/tsconfig.json && node scripts/build-web.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json",
+    "test": "npm run build && vitest run",
+    "run": "node dist/cli.js",
+    "look": "node dist/look-cli.js",
+    "draft": "node dist/draft-cli.js",
+    "mcp": "node dist/mcp/server.js",
+    "web": "node dist/web.js",
+    "test:watch": "vitest",
+    "coverage": "npm run build && vitest run --coverage",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^26.3.0",
+    "@vitest/coverage-v8": "^4.1.11",
+    "esbuild": "^0.28.2",
+    "typescript": "^5.6.0",
+    "vitest": "^4.1.11"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "patchright": "^1.62.1",
+    "telegram": "^2.26.22",
+    "zod": "^4.4.3"
+  }
+}
