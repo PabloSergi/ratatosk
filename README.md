@@ -1,5 +1,7 @@
 # Ratatosk
 
+[![test](https://github.com/PabloSergi/ratatosk/actions/workflows/test.yml/badge.svg)](https://github.com/PabloSergi/ratatosk/actions/workflows/test.yml)
+
 A model builds the scraper once. After that it runs without a model — no tokens, no network to anyone
 but the site, no surprises. When the site changes and the scraper breaks, the model is woken up to fix
 it, shows you what it changed, and goes back to sleep.
