@@ -172,8 +172,9 @@ export const api = {
   telegramForget: (id: string) => post<{ accounts: TelegramAccount[] }>('/api/telegram/forget', { id }),
   telegramRobot: (input: { channels: string; name: string; limit: number; contains: string; want: string; account?: string }) =>
     post<{
-      saved: string;
-      scraper: TelegramRobot;
+      saved: string[];
+      /** One per channel: several groups behind one scraper hide each other's silence. */
+      robots: TelegramRobot[];
       sift?: { built: boolean; attempts: SiftAttempt[]; usage: { calls: number }; reason?: string };
     }>('/api/telegram/robot', input),
 };

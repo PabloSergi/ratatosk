@@ -413,11 +413,18 @@ el('tgCreate').addEventListener('click', async () => {
       account: value('tgAccount') || undefined,
     });
 
+    // One per channel, and the answer says so — somebody who typed four names and got four scrapers
+    // should read why here rather than wonder about it in the list.
+    const made = created.robots;
     result(
-      `${created.scraper.name} — telegram scraper`,
-      `${badge('ok')} created for ${created.scraper.channels.map(escapeHtml).join(', ')}` +
+      made.length === 1 ? `${made[0]!.name} — telegram scraper` : `${made.length} telegram scrapers`,
+      `${badge('ok')} ${made.map((robot) => escapeHtml(robot.name)).join(', ')}` +
+        (made.length > 1
+          ? '<div class="meta spaced">one per channel, on purpose: merged into one, a group that goes ' +
+            'quiet is hidden by the ones that still answer.</div>'
+          : '') +
         siftNote(created.sift) +
-        '<div class="meta spaced">press Run in the list below to read it</div>',
+        '<div class="meta spaced">press Run in the list below to read them</div>',
     );
     await loadScrapers();
   } catch (error) {

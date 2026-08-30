@@ -845,24 +845,48 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     return { accounts: await listTelegramAccounts(user.id) };
   },
 
+  /**
+   * One channel, one scraper.
+   *
+   * Several channels behind a single scraper reads as tidier and is worse at the only thing this
+   * product promises: when one of four groups goes quiet or throws us out, a merged scraper still
+   * returns rows from the other three and looks perfectly healthy. Split, each one has its own state,
+   * its own history, its own memory of what it has already handed over, and can be deleted or repaired
+   * without disturbing its neighbours.
+   *
+   * The rule is written once, from a sample pooled across all of them — that is one model call for the
+   * whole batch rather than one each, and they are the same task by definition, since the person
+   * described it once. Each scraper then carries its own copy and can be rebuilt alone later.
+   */
   '/api/telegram/robot': async (body, user) => {
     const channels = String(body['channels'])
       .split(/[\s,]+/)
       .map((channel) => channel.replace(/^@/, '').trim())
       .filter(Boolean);
 
-    const robot = parseTelegramRobot({
-      name: String(body['name'] || channels[0] || 'telegram'),
-      version: 1,
-      source: 'telegram',
-      account: body['account'] ? String(body['account']) : undefined,
-      channels,
-      limit: Number(body['limit'] ?? 100),
-      contains: String(body['contains'] ?? '')
-        .split(',')
-        .map((word) => word.trim())
-        .filter(Boolean),
-    });
+    if (channels.length === 0) throw new InputError('name at least one channel or group');
+
+    const given = String(body['name'] ?? '').trim();
+    const account = body['account'] ? String(body['account']) : undefined;
+    const limit = Number(body['limit'] ?? 100);
+    const contains = String(body['contains'] ?? '')
+      .split(',')
+      .map((word) => word.trim())
+      .filter(Boolean);
+
+    const robots = channels.map((channel) =>
+      parseTelegramRobot({
+        // A name is what you look for in a list of thirty, so it says which channel this is. One
+        // channel and a name given by hand is the exception: then the person's own word wins.
+        name: channels.length === 1 && given ? given : given ? `${given}-${channel}` : channel,
+        version: 1,
+        source: 'telegram',
+        account,
+        channels: [channel],
+        limit,
+        contains,
+      }),
+    );
 
     // A channel decides nothing about what a message is: postings, CVs, someone selling accounts and
     // someone saying "up" arrive through the same pipe. If the person said what they are after, the
@@ -875,8 +899,11 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
       const connection = await activeConnection(settingsFileFor(user.id));
       if (!connection) throw new InputError('no model connection yet — add one in Model, or leave the task empty');
 
-      const session = await sessionForRobot(user.id, robot.account);
-      const sample = await runTelegramRobot({ ...robot, limit: Math.min(robot.limit, 120), contains: [] }, session);
+      const session = await sessionForRobot(user.id, account);
+      const sample = await runTelegramRobot(
+        { ...robots[0]!, channels, limit: Math.min(limit, 120), contains: [] },
+        session,
+      );
       if (sample.reason) throw new InputError(`could not read those channels: ${sample.reason}`);
 
       sifting = await buildSift({
@@ -886,10 +913,10 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
         model: connection.model,
         baseUrl: connection.baseUrl,
       });
-      if (sifting.sift) robot.sift = sifting.sift;
+      if (sifting.sift) for (const robot of robots) robot.sift = { ...sifting.sift };
 
       log(sifting.sift ? 'info' : 'warn', 'sift built', {
-        robot: robot.name,
+        robots: robots.map((robot) => robot.name).join(', '),
         user: user.id,
         sampled: sample.rows.length,
         kept: sifting.attempts.at(-1)?.kept ?? 0,
@@ -898,10 +925,13 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
       });
     }
 
-    const path = await saveRobot(robot, robotsDirFor(user.id));
+    const saved: string[] = [];
+    for (const robot of robots) saved.push(await saveRobot(robot, robotsDirFor(user.id)));
+
     return {
-      saved: path,
-      robot,
+      saved,
+      robots,
+      robot: robots[0],
       ...(sifting
         ? {
             sift: {

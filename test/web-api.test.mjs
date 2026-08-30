@@ -158,6 +158,44 @@ test('telegram is empty until an account is connected, and says which', async ()
   assert.equal(check.body.connected, false, 'checking an account that is not there is not an error');
 });
 
+/**
+ * The promise is that a scraper says when it breaks, and a scraper reading four groups at once cannot
+ * keep it: one of them goes quiet and the other three cover for it. So four names make four scrapers.
+ */
+test('four channels become four scrapers, one each', async () => {
+  const made = await call('/api/telegram/robot', {
+    channels: '@pythonjobs, remote_work devhires\n@nightshift',
+    limit: 50,
+  });
+
+  assert.equal(made.status, 200);
+  assert.equal(made.body.robots.length, 4);
+  assert.deepEqual(
+    made.body.robots.map((robot) => robot.name),
+    ['pythonjobs', 'remote_work', 'devhires', 'nightshift'],
+    'each is named after the channel it reads, because that is what you look for in a list',
+  );
+  for (const robot of made.body.robots) {
+    assert.equal(robot.channels.length, 1, `${robot.name} reads more than one channel`);
+    assert.equal(robot.limit, 50);
+  }
+
+  const listed = await call('/api/robots', {});
+  const names = listed.body.robots.map((robot) => robot.name);
+  for (const robot of made.body.robots) assert.ok(names.includes(robot.name), `${robot.name} was not saved`);
+});
+
+test('one channel with a name of its own keeps that name', async () => {
+  const made = await call('/api/telegram/robot', { channels: '@onlyone', name: 'my-watch', limit: 10 });
+  assert.deepEqual(made.body.robots.map((robot) => robot.name), ['my-watch']);
+});
+
+test('a telegram scraper without a channel is refused with a reason', async () => {
+  const nothing = await call('/api/telegram/robot', { channels: '  ' });
+  assert.equal(nothing.status, 400);
+  assert.match(nothing.body.error, /at least one channel/);
+});
+
 test('a robot cannot be attached to a proxy that does not exist', async () => {
   const attached = await call('/api/robot/proxy', { name: 'nothing', proxy: 'made-up' });
   assert.equal(attached.status, 400);

@@ -69,8 +69,12 @@
       <p class="meta" id="tgRobotNote"></p>
       <div class="row">
         <input type="text" id="tgChannels" placeholder="channels and groups by username: pythonjobs, remote_work">
-        <input type="text" id="tgRobotName" placeholder="scraper name" class="narrow">
+        <input type="text" id="tgRobotName" placeholder="name prefix (optional)" class="narrow">
       </div>
+      <p class="meta">
+        Every channel becomes its own scraper. Behind one, a group that goes quiet or throws you out is
+        covered by the ones that still answer, and the card looks healthy while you lose a source.
+      </p>
       <textarea id="tgWant" rows="2" placeholder="what counts, in your own words — e.g. вакансии: ищем людей на работу, не резюме, не продажа аккаунтов"></textarea>
       <div class="row spaced">
         <label for="tgAccount" class="meta">read as</label>
