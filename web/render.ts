@@ -73,7 +73,7 @@ export function verdictBars(verdict: QualityVerdict | undefined): string {
 }
 
 /**
- * A robot's kind is a real difference — a page walk and a Telegram read fail differently and are fixed
+ * A scraper's kind is a real difference — a page walk and a Telegram read fail differently and are fixed
  * differently — so it is shown, and the list can be narrowed to one kind at a time.
  */
 export function kindTabs(kinds: Array<{ kind: string; count: number }>, active: string): string {
@@ -85,6 +85,31 @@ export function kindTabs(kinds: Array<{ kind: string; count: number }>, active: 
   return [tab('all', 'all', all), ...kinds.map((entry) => tab(entry.kind, entry.kind, entry.count))].join('');
 }
 
+
+/**
+ * The same two things on every card: a way to ask "are you still working?", and the answer underneath.
+ *
+ * A connection, a proxy, a Telegram account and a scraper fail in completely different ways, but the
+ * question a person has about them is identical — so the control is identical too, and it is an icon
+ * rather than a word because a card is a row of verbs and only one of them is a question.
+ */
+export function checkIcon(attribute: string, id: string, title: string): string {
+  return (
+    `<button class="icon" ${attribute}="${escapeHtml(id)}" title="${escapeHtml(title)}" ` +
+    `aria-label="${escapeHtml(title)}">&#10227;</button>`
+  );
+}
+
+/** How a thing is, in its own line at the bottom of its card. Green when it answered, red when it did not. */
+export function stateLine(
+  check: { at: string; ok: boolean; note: string } | undefined,
+  never = 'never checked',
+): string {
+  if (!check) return `<div class="state muted">${escapeHtml(never)}</div>`;
+  const when = new Date(check.at).toLocaleTimeString();
+  return `<div class="state ${check.ok ? 'ok' : 'bad'}">${escapeHtml(check.note)} <span class="meta">${escapeHtml(when)}</span></div>`;
+}
+
 /** A proxy is only as good as the address it actually gives you, so that is what the card shows. */
 export function proxyCard(proxy: {
   id: string;
@@ -94,27 +119,32 @@ export function proxyCard(proxy: {
   user?: string;
   exitIp?: string;
   checkedAt?: string;
+  latencyMs?: number;
 }): string {
-  const seen = proxy.exitIp
-    ? `exit ${escapeHtml(proxy.exitIp)}${proxy.checkedAt ? ` · ${new Date(proxy.checkedAt).toLocaleTimeString()}` : ''}`
-    : 'never checked';
+  const state = proxy.exitIp
+    ? {
+        at: proxy.checkedAt ?? new Date().toISOString(),
+        ok: true,
+        note: `comes out as ${proxy.exitIp}${proxy.latencyMs ? ` in ${proxy.latencyMs} ms` : ''}`,
+      }
+    : undefined;
 
   return `
-    <div class="robot">
-      <div>
+    <div class="item">
+      <div class="item-main">
         <b>${escapeHtml(proxy.label)}</b> <span class="kind">${escapeHtml(proxy.scheme)}</span>
-        <div class="meta">${escapeHtml(proxy.host)}${proxy.user ? ` · ${escapeHtml(proxy.user)}` : ''}</div>
-        <div class="meta">${seen}</div>
+        <div class="meta">${escapeHtml(proxy.host)}${proxy.user ? ` \u00b7 ${escapeHtml(proxy.user)}` : ''}</div>
+        ${stateLine(state, 'never checked — press the arrow to send a request through it')}
       </div>
       <div class="row">
-        <button data-proxy-check="${escapeHtml(proxy.id)}">Check</button>
+        ${checkIcon('data-proxy-check', proxy.id, 'check it now: go out through this address and report what the world sees')}
         <button data-proxy-remove="${escapeHtml(proxy.id)}">Remove</button>
       </div>
     </div>`;
 }
 
-export function robotCard(
-  robot: {
+export function scraperCard(
+  scraper: {
     name: string;
     kind?: string;
     url: string;
@@ -126,34 +156,39 @@ export function robotCard(
     sift?: number;
   },
   standing?: { status: 'ok' | 'empty' | 'broken'; at: string; rows: number; inARow: number; why?: string },
+  /** A probe done just now, which is newer than any run and therefore what the card should say. */
+  check?: { at: string; ok: boolean; note: string },
 ): string {
-  // How it is now, next to what it is. A card that only says what a robot was built to do cannot tell
+  // How it is now, under what it is. A card that only says what a scraper was built to do cannot tell
   // you the one thing you came to find out.
-  const how = standing
-    ? `<div class="meta">${badge(standing.status)} ${standing.rows} rows · ` +
-      `${escapeHtml(new Date(standing.at).toLocaleString())}` +
-      `${standing.inARow > 1 ? ` · ${standing.inARow} runs in a row` : ''}` +
-      `${standing.why ? `<br><span class="${standing.status === 'ok' ? 'muted' : 'broken'}">${escapeHtml(standing.why)}</span>` : ''}</div>`
-    : '<div class="meta muted">never run here</div>';
+  const how = check
+    ? stateLine(check)
+    : standing
+      ? `<div class="state ${standing.status === 'ok' ? 'ok' : 'bad'}">${badge(standing.status)} ${standing.rows} rows ` +
+        `<span class="meta">${escapeHtml(new Date(standing.at).toLocaleString())}` +
+        `${standing.inARow > 1 ? ` \u00b7 ${standing.inARow} runs in a row` : ''}</span>` +
+        `${standing.why ? `<br><span class="${standing.status === 'ok' ? 'meta' : 'broken'}">${escapeHtml(standing.why)}</span>` : ''}</div>`
+      : stateLine(undefined, 'never run here — press the arrow to see whether the page still answers');
 
   return `
-    <div class="robot">
-      <div>
-        <b>${escapeHtml(robot.name)}</b>${robot.kind ? ` <span class="kind">${escapeHtml(robot.kind)}</span>` : ''}
-        <div class="meta">${escapeHtml(robot.url)}</div>
-        ${how}
-        <div class="meta">${robot.fields.map(escapeHtml).join(' · ')}${
+    <div class="item">
+      <div class="item-main">
+        <b>${escapeHtml(scraper.name)}</b>${scraper.kind ? ` <span class="kind">${escapeHtml(scraper.kind)}</span>` : ''}
+        <div class="meta">${escapeHtml(scraper.url)}</div>
+        <div class="meta">${scraper.fields.map(escapeHtml).join(' \u00b7 ')}${
           // Columns from inside a row are marked, because they are not free: one page load each.
-          robot.deeper?.length ? ` · ${robot.deeper.map((field) => `${escapeHtml(field)} ↓`).join(' · ')}` : ''
-        } — ${escapeHtml(robot.pagination)}${robot.proxy ? ` · <span class="via">via proxy</span>` : ''}</div>
+          scraper.deeper?.length ? ` \u00b7 ${scraper.deeper.map((field) => `${escapeHtml(field)} \u2193`).join(' \u00b7 ')}` : ''
+        } \u2014 ${escapeHtml(scraper.pagination)}${scraper.proxy ? ` \u00b7 <span class="via">via proxy</span>` : ''}</div>
+        ${how}
       </div>
       <div class="row">
-        <button data-run="${escapeHtml(robot.name)}">Run</button>
-        <button data-repair="${escapeHtml(robot.name)}">Repair</button>
-        <button data-rule="${escapeHtml(robot.name)}" title="what this robot keeps and what it throws away">Rule${
-          robot.sift ? ` <span class="kind">${robot.sift}</span>` : ''
+        ${checkIcon('data-scraper-check', scraper.name, 'check it now: one page, no model, nothing remembered')}
+        <button data-run="${escapeHtml(scraper.name)}">Run</button>
+        <button data-repair="${escapeHtml(scraper.name)}">Repair</button>
+        <button data-rule="${escapeHtml(scraper.name)}" title="what this scraper keeps and what it throws away">Rule${
+          scraper.sift ? ` <span class="kind">${scraper.sift}</span>` : ''
         }</button>
-        <button data-delete="${escapeHtml(robot.name)}" title="delete this robot and what its profile remembers about the site">Delete</button>
+        <button data-delete="${escapeHtml(scraper.name)}" title="delete this scraper and what its profile remembers about the site">Delete</button>
       </div>
     </div>`;
 }
@@ -173,11 +208,6 @@ export function connectionCard(connection: {
   runs?: boolean;
   lastCheck?: { at: string; ok: boolean; note: string };
 }): string {
-  const check = connection.lastCheck;
-  const state = check
-    ? `<dt>state</dt><dd class="${check.ok ? '' : 'broken'}">${escapeHtml(check.note)} · ${new Date(check.at).toLocaleTimeString()}</dd>`
-    : '<dt>state</dt><dd class="muted">press “Check” — it asks the provider and pings the model</dd>';
-
   return `
     <div class="card">
       <div class="card-head">
@@ -192,23 +222,23 @@ export function connectionCard(connection: {
       </div>
       <dl class="facts">
         <dt>where</dt><dd>${escapeHtml(connection.baseUrl)}</dd>
-        ${state}
       </dl>
       <div class="card-foot">
         <label class="meta">builds with</label>
         <select data-connection-model="${escapeHtml(connection.id)}">
           <option value="${escapeHtml(connection.model)}">${escapeHtml(connection.model)}</option>
         </select>
-        <button data-check-connection="${escapeHtml(connection.id)}">Check</button>
+        ${checkIcon('data-check-connection', connection.id, 'check it now: ask the provider what is left, and ping the model')}
         <span class="meta" data-connection-note="${escapeHtml(connection.id)}">the list loads when you open it</span>
       </div>
+      ${stateLine(connection.lastCheck, 'never checked \u2014 press the arrow to ask the provider')}
     </div>`;
 }
 
 /**
  * A Telegram account card. Same shape as a connection card on purpose: a checked account has to show
  * what the check found — being signed in, how many chats are visible, and whether the channels the
- * robots depend on can still be read.
+ * scrapers depend on can still be read.
  */
 export function accountCard(account: {
   id: string;
@@ -221,16 +251,12 @@ export function accountCard(account: {
   access?: Array<{ channel: string; ok: boolean; note: string }>;
   lastCheck?: { at: string; ok: boolean; note: string };
 }): string {
-  const check = account.lastCheck;
   const facts = [
     account.phone ? `<dt>phone</dt><dd>${escapeHtml(account.phone)}</dd>` : '',
     account.connectedAt
       ? `<dt>connected</dt><dd>${escapeHtml(new Date(account.connectedAt).toLocaleString())}</dd>`
       : '',
     account.apiId ? `<dt>api_id</dt><dd>${account.apiId}</dd>` : '',
-    check
-      ? `<dt>state</dt><dd class="${check.ok ? '' : 'broken'}">${escapeHtml(check.note)} · ${new Date(check.at).toLocaleTimeString()}</dd>`
-      : '<dt>state</dt><dd class="muted">press “Check connection” — it uses the session for real</dd>',
     account.dialogs !== undefined ? `<dt>chats visible</dt><dd>${account.dialogs}</dd>` : '',
     ...(account.access ?? []).map(
       (entry) =>
@@ -243,15 +269,16 @@ export function accountCard(account: {
       <div class="card-head">
         <span class="badge ${account.alive === false ? 'broken' : 'ok'}">account</span>
         <b class="mono">${escapeHtml(account.account ?? 'connected')}</b>
+        ${checkIcon('data-tg-check', account.id, 'check it now: use the session and see which channels still answer')}
         <button data-tg-forget="${escapeHtml(account.id)}">Disconnect</button>
       </div>
       <dl class="facts">${facts}</dl>
-      <div class="card-row"><button data-tg-check="${escapeHtml(account.id)}">Check connection</button></div>
+      ${stateLine(account.lastCheck, 'never checked \u2014 press the arrow to use the session for real')}
     </div>`;
 }
 
 
-/** A robot's story, newest first: what each run returned and why it stopped there. */
+/** A scraper's story, newest first: what each run returned and why it stopped there. */
 export function runsList(runs: Array<{ at: string; robot: string; kind: string; status: 'ok' | 'empty' | 'broken'; rows: number; pages?: number; ms: number; why?: string; door?: boolean }>): string {
   if (!runs.length) return '<div class="meta muted">nothing has run yet</div>';
 
@@ -269,7 +296,7 @@ export function runsList(runs: Array<{ at: string; robot: string; kind: string; 
     )
     .join('');
 
-  return `<table><thead><tr><th>when</th><th>robot</th><th></th><th>rows</th><th>took</th><th>why</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `<table><thead><tr><th>when</th><th>scraper</th><th></th><th>rows</th><th>took</th><th>why</th></tr></thead><tbody>${rows}</tbody></table>`;
 }
 
 
@@ -280,7 +307,7 @@ export function keysList(keys: Array<{ id: string; label: string; hint: string; 
   return keys
     .map(
       (key) => `
-      <div class="robot">
+      <div class="scraper">
         <div>
           <b>${escapeHtml(key.label)}</b> <span class="kind mono">${escapeHtml(key.hint)}</span>
           <div class="meta">made ${escapeHtml(new Date(key.createdAt).toLocaleString())}${
@@ -306,12 +333,12 @@ export function ruleEditor(
   const rule = sift ?? { keep: [], drop: [] };
   return `
     <div class="meta">
-      A rule decides what this robot returns. <b>Keeps</b> are matched first — a row stays if any of them
+      A rule decides what this scraper returns. <b>Keeps</b> are matched first — a row stays if any of them
       hits. <b>Drops</b> are checked after, and a drop always wins. Rows nothing claims are the edge:
       with a second opinion switched on, a model looks at those on every run.
     </div>
     <div class="row spaced">
-      <input type="text" id="ruleWant" placeholder="what this robot should keep, in your own words" value="${escapeHtml(rule.want ?? '')}">
+      <input type="text" id="ruleWant" placeholder="what this scraper should keep, in your own words" value="${escapeHtml(rule.want ?? '')}">
       <label class="meta"><input type="checkbox" id="ruleJudge" ${rule.judge ? 'checked' : ''}> ask a model about the edge</label>
       <label class="meta" title="the same posting reposted every ten minutes is not news; a run hands back only what it has not seen">
         <input type="checkbox" id="ruleRemember" ${remembering ? 'checked' : ''}> only what I have not seen before

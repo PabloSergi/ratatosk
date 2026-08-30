@@ -80,7 +80,12 @@ export const api = {
   login: (email: string, password: string) => post<{ user: Account; token: string }>('/api/auth/login', { email, password }),
   me: () => post<{ user: Account }>('/api/auth/me'),
 
-  robots: () => post<{ robots: RobotSummary[] }>('/api/robots'),
+  /**
+   * The wire still says "robots" — that is the name on disk and in the HTTP API, and renaming a
+   * storage format to match a word on a screen is how installations lose their data. The screen's
+   * vocabulary is settled here, at the boundary, and nowhere else.
+   */
+  scrapers: async () => ({ scrapers: (await post<{ robots: RobotSummary[] }>('/api/robots')).robots }),
   run: (name: string, maxPages?: number) => post<RunResult>('/api/run', { name, maxPages }),
   repair: (name: string) => post<Partial<RepairResult> & { rule?: RuleRepair }>('/api/repair', { name }),
   agent: (url: string, want: string, name: string, proxy?: string) =>
@@ -113,15 +118,21 @@ export const api = {
   },
   removeProxy: (id: string) => post<{ proxies: ProxyView[] }>('/api/proxies/remove', { id }),
   checkProxy: (id: string) => post<ProxyView & { exitIp: string; latencyMs: number }>('/api/proxies/check', { id }),
+  /** One page, no model, nothing remembered: is this scraper still getting rows out of that site? */
+  checkScraper: (name: string) =>
+    post<{ name: string; ok: boolean; status: string; rows: number; challenge: boolean; note: string; at: string }>(
+      '/api/robot/check',
+      { name },
+    ),
 
-  /** Open the robot's own browser on a screen this account can reach, and hand it to the person. */
+  /** Open the scraper's own browser on a screen this account can reach, and hand it to the person. */
   takeover: (url: string, proxy?: string) =>
     post<{ view: string; desktop: string; vncPort: number; url: string; expiresAt: string }>('/api/browser/takeover', {
       url,
       proxy,
     }),
   releaseBrowser: () => post<{ released: true }>('/api/browser/release', {}),
-  history: (robot?: string) => post<{ runs: Run[]; standing: Standing[] }>('/api/history', { robot }),
+  history: (scraper?: string) => post<{ runs: Run[]; standing: Standing[] }>('/api/history', { scraper }),
 
   keys: () => post<{ keys: KeyView[] }>('/api/keys', {}),
   createKey: (label: string) => post<{ key: string; keys: KeyView[] }>('/api/keys/create', { label }),
@@ -162,7 +173,7 @@ export const api = {
   telegramRobot: (input: { channels: string; name: string; limit: number; contains: string; want: string; account?: string }) =>
     post<{
       saved: string;
-      robot: TelegramRobot;
+      scraper: TelegramRobot;
       sift?: { built: boolean; attempts: SiftAttempt[]; usage: { calls: number }; reason?: string };
     }>('/api/telegram/robot', input),
 };

@@ -8,10 +8,10 @@
 </head>
 <body>
 <header>
-  <h1><i class="mark" aria-hidden="true">ᚱ</i>Ratatosk <span>robots that say when they break</span></h1>
+  <h1><i class="mark" aria-hidden="true">ᚱ</i>Ratatosk <span>scrapers that say when they break</span></h1>
   <div id="who" class="meta" hidden></div>
   <nav id="views" class="app" hidden>
-    <button class="view-tab on" data-view="robots">Robots</button>
+    <button class="view-tab on" data-view="scrapers">Scrapers</button>
     <button class="view-tab" data-view="runs">Runs</button>
     <button class="view-tab" data-view="model">Model</button>
     <button class="view-tab" data-view="proxies">Proxies</button>
@@ -29,13 +29,13 @@
       <button id="authRegister">Create account</button>
     </div>
     <div id="authNote" class="meta">
-      Your robots, your keys and your data are yours alone — every account gets its own.
+      Your scrapers, your keys and your data are yours alone — every account gets its own.
     </div>
   </section>
 
-  <!-- ROBOTS ---------------------------------------------------------------------------------->
-  <section class="app" data-view="robots" hidden>
-    <h2>Build a robot</h2>
+  <!-- SCRAPERS ---------------------------------------------------------------------------------->
+  <section class="app" data-view="scrapers" hidden>
+    <h2>Build a scraper</h2>
 
     <div class="tabs" id="sourceTabs">
       <button class="tab on" data-source="web">website</button>
@@ -53,14 +53,14 @@
         <select id="buildProxy"><option value="">direct</option></select>
         <button class="primary" id="agent">Build with model</button>
         <button id="draft">Build without model — free</button>
-        <button id="takeoverOpen" title="opens this address in the robot's own browser, through the proxy chosen here">Open it myself</button>
+        <button id="takeoverOpen" title="opens this address in the scraper's own browser, through the proxy chosen here">Open it myself</button>
       </div>
       <div id="takeoverNote" class="meta spaced" hidden></div>
       <p class="meta">
         <b>With the model</b> — it works the page through the tools and fixes its own selectors: fractions of
         a cent, and it handles awkward sites. <b>Without</b> — the same steps by plain rules, instant and free.
         <b>Open it myself</b> — for a door meant for a person: a check, a login, an age gate. You pass it by
-        hand and what the site leaves behind stays in this robot's profile.
+        hand and what the site leaves behind stays in this scraper's profile.
       </p>
       <div id="buildOut"></div>
     </div>
@@ -69,7 +69,7 @@
       <p class="meta" id="tgRobotNote"></p>
       <div class="row">
         <input type="text" id="tgChannels" placeholder="channels and groups by username: pythonjobs, remote_work">
-        <input type="text" id="tgRobotName" placeholder="robot name" class="narrow">
+        <input type="text" id="tgRobotName" placeholder="scraper name" class="narrow">
       </div>
       <textarea id="tgWant" rows="2" placeholder="what counts, in your own words — e.g. вакансии: ищем людей на работу, не резюме, не продажа аккаунтов"></textarea>
       <div class="row spaced">
@@ -77,7 +77,7 @@
         <select id="tgAccount"></select>
         <input type="text" id="tgLimit" placeholder="messages" value="100" class="tiny">
         <input type="text" id="tgContains" placeholder="or just a word it must contain">
-        <button class="primary" id="tgCreate">Create robot</button>
+        <button class="primary" id="tgCreate">Create scraper</button>
       </div>
       <p class="meta">
         A channel decides nothing about what a message is: postings, CVs, someone selling accounts and
@@ -88,18 +88,18 @@
     </div>
   </section>
 
-  <section class="app" data-view="robots" hidden>
-    <h2>Robots</h2>
+  <section class="app" data-view="scrapers" hidden>
+    <h2>Scrapers</h2>
     <div class="tabs" id="kinds"></div>
-    <div id="robots" class="meta">loading…</div>
+    <div id="scrapers" class="meta">loading…</div>
   </section>
 
   <!-- RUNS ------------------------------------------------------------------------------------>
   <section class="app" data-view="runs" hidden>
-    <h2>How the robots are doing</h2>
+    <h2>How the scrapers are doing</h2>
     <div id="runsStatus" class="meta">checking…</div>
     <p class="meta">
-      A robot that returns eleven rows tells you nothing; eleven where yesterday there were four hundred
+      A scraper that returns eleven rows tells you nothing; eleven where yesterday there were four hundred
       tells you the site changed under it. Every run leaves a line here — what came back, how long it
       took, and why it stopped there.
     </p>
@@ -125,12 +125,10 @@
   <section class="app" data-view="model" hidden>
     <h2>Model connections</h2>
     <p class="meta">
-      Two different jobs. <b>Builds</b> writes a robot or a rule — once, carefully, and worth a good
+      Two different jobs. <b>Builds</b> writes a scraper or a rule — once, carefully, and worth a good
       model. <b>Runs</b> is the second opinion on borderline rows: it happens on every run, forever, so
       it wants the cheapest thing that can read. One connection can do both; two usually cost less.
     </p>
-    <div id="llmStatus" class="meta">checking…</div>
-    <div id="llmList"></div>
 
     <h2 class="spaced">Add a connection</h2>
     <ol class="guide" id="llmGuide">
@@ -152,14 +150,20 @@
       <button class="primary" id="llmAdd">Add connection</button>
       <span class="meta" id="llmModelNote"></span>
     </div>
+    <h2 class="spaced">Connections</h2>
+    <div id="llmStatus" class="meta">checking…</div>
+    <div id="llmList"></div>
+
   </section>
 
   <!-- PROXIES --------------------------------------------------------------------------------->
   <section class="app" data-view="proxies" hidden>
     <h2>Proxies</h2>
-    <div id="proxyStatus" class="meta">checking…</div>
-    <div id="proxyList"></div>
-
+    <p class="meta">
+      Sites block by address, not by selector — a page that answers “here is your IP” is not going to be
+      talked round. A scraper remembers the proxy it was built through and keeps using it; each address gets
+      its own browser profile, so identities never mix.
+    </p>
     <h2 class="spaced">Add a proxy</h2>
     <div class="row">
       <select id="proxyScheme">
@@ -176,24 +180,20 @@
       <input type="text" id="proxyLabel" placeholder="name it (optional)" class="narrow">
       <button class="primary" id="proxyAdd">Add proxy</button>
     </div>
-    <p class="meta">
-      Sites block by address, not by selector — a page that answers “here is your IP” is not going to be
-      talked round. A robot remembers the proxy it was built through and keeps using it; each address gets
-      its own browser profile, so identities never mix.
-    </p>
+    <h2 class="spaced">Addresses</h2>
+    <div id="proxyStatus" class="meta">checking…</div>
+    <div id="proxyList"></div>
+
   </section>
 
   <!-- TELEGRAM -------------------------------------------------------------------------------->
   <section class="app" data-view="telegram" hidden>
     <h2>Telegram accounts</h2>
-    <div id="tgStatus" class="meta">checking…</div>
-    <div id="tgList"></div>
-
     <h2 class="spaced">Connect an account</h2>
     <p class="meta">
-      Public <b>channels</b> need none of this — build a robot for <code>t.me/s/&lt;channel&gt;</code> like any
+      Public <b>channels</b> need none of this — build a scraper for <code>t.me/s/&lt;channel&gt;</code> like any
       other page. <b>Groups</b> have no web page at all, so reading one means being a member, which means a
-      Telegram account. Connect as many as you like; a robot names the one it reads with.
+      Telegram account. Connect as many as you like; a scraper names the one it reads with.
     </p>
 
     <ol class="wizard">
@@ -228,10 +228,14 @@
       </li>
 
       <li id="tgStep3">
-        <h3>Build a robot with it</h3>
-        <p class="meta">Robots are made in <b>Robots</b> → <i>telegram</i>, where you choose which account reads which channels.</p>
+        <h3>Build a scraper with it</h3>
+        <p class="meta">Scrapers are made in <b>Scrapers</b> → <i>telegram</i>, where you choose which account reads which channels.</p>
       </li>
     </ol>
+    <h2 class="spaced">Connected</h2>
+    <div id="tgStatus" class="meta">checking…</div>
+    <div id="tgList"></div>
+
   </section>
 
   <section class="app" id="resultBox" data-view="any" hidden>

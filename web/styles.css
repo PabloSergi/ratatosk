@@ -332,7 +332,7 @@ pre {
 
 /* --- robots ------------------------------------------------------------------------------- */
 
-.robot {
+.item {
   display: flex;
   gap: 16px;
   align-items: center;
@@ -346,9 +346,35 @@ pre {
   transition: border-color 0.15s ease, transform 0.15s ease;
 }
 
-.robot:hover { border-color: var(--edge-bright); transform: translateX(2px); }
-.robot b { font-size: 15px; letter-spacing: 0.01em; }
-.robot .meta { font-family: var(--mono); font-size: 12px; }
+.item:hover { border-color: var(--edge-bright); transform: translateX(2px); }
+.item-main { min-width: 0; flex: 1; }
+
+/* --- how a thing is, under what it is -------------------------------------------------------- */
+
+/* The answer to "is this still working?" belongs under the thing it is about, in its own line, in one
+   colour a person can read across a whole list without stopping on any of them. */
+.state {
+  margin-top: 7px;
+  font: 12px/1.6 var(--mono);
+  color: var(--ink-dim);
+}
+.state.ok { color: var(--ok); }
+.state.bad { color: var(--broken); }
+.state.muted { color: var(--ink-faint); }
+.state .meta { color: var(--ink-faint); }
+.state.checking { opacity: 0.6; }
+
+/* The one control that asks a question rather than doing a thing, so it is a mark and not a word. */
+button.icon {
+  padding: 6px 10px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--ink-dim);
+}
+button.icon.spinning { animation: turning 0.9s linear infinite; }
+@keyframes turning { to { transform: rotate(360deg); } }
+.item b { font-size: 15px; letter-spacing: 0.01em; }
+.item .meta { font-family: var(--mono); font-size: 12px; }
 
 /* --- agent steps -------------------------------------------------------------------------- */
 

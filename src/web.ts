@@ -611,7 +611,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     const robot = await loadRobot(String(body['name'] ?? ''), dir);
     const stored = (robot as { sift?: Sift }).sift;
     const want = String(body['want'] ?? stored?.want ?? stored?.judge?.want ?? '').trim();
-    if (!want) throw new InputError('say what this robot should keep, in your own words');
+    if (!want) throw new InputError('say what this scraper should keep, in your own words');
 
     const connection = await activeConnection(settingsFileFor(user.id));
     if (!connection) throw new InputError('no model connection yet — add one in Model');
@@ -680,11 +680,58 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     }
   },
 
+  /**
+   * Is this scraper still alive?
+   *
+   * One page, nothing else: no pagination, no walking into rows, no model, and — the part that matters
+   * — no memory. A check must never mark rows as seen, or checking a scraper would quietly eat the very
+   * rows its next run was meant to hand over. It is not written to the run history either: a probe is
+   * not a delivery, and counting it as one would make "three runs in a row" mean nothing.
+   */
+  '/api/robot/check': async (body, user) => {
+    const robot = await loadRobot(String(body['name']), robotsDirFor(user.id));
+    const started = Date.now();
+    const telegramSession = isTelegramRobot(robot) ? await sessionForRobot(user.id, robot.account) : undefined;
+
+    const result = await pool.use(poolKey(user.id, isTelegramRobot(robot) ? undefined : robot.proxy), (session) =>
+      runRobot(robot, {
+        page: async () => session.page,
+        rules,
+        maxPages: 1,
+        ...(telegramSession ? { telegramSession } : {}),
+      }),
+    );
+
+    const ms = Date.now() - started;
+    const note =
+      result.status === 'ok'
+        ? `${result.rows.length} rows on the first page · ${ms} ms`
+        : (result.reason ?? 'nothing came back');
+
+    log(result.status === 'ok' ? 'info' : 'warn', 'robot checked', {
+      robot: robot.name,
+      user: user.id,
+      status: result.status,
+      rows: result.rows.length,
+      ms,
+    });
+
+    return {
+      name: robot.name,
+      ok: result.status === 'ok',
+      status: result.status,
+      rows: result.rows.length,
+      challenge: result.challenge ?? false,
+      note,
+      at: new Date().toISOString(),
+    };
+  },
+
   /** Attach or detach a proxy on a robot that already exists. */
   '/api/robot/proxy': async (body, user) => {
     const dir = robotsDirFor(user.id);
     const robot = await loadRobot(String(body['name']), dir);
-    if (isTelegramRobot(robot)) throw new InputError('a Telegram robot does not go through a browser proxy');
+    if (isTelegramRobot(robot)) throw new InputError('a Telegram scraper does not go through a browser proxy');
 
     const proxy = body['proxy'] ? String(body['proxy']) : undefined;
     if (proxy && !(await findProxy(proxiesFileFor(user.id), proxy))) throw new InputError('no such proxy');

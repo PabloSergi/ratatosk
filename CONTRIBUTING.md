@@ -27,7 +27,7 @@ covered today, so a change that covers less fails. Raise it when you add tests; 
 a build pass.
 
 `npm run e2e` — does the product work? Playwright drives a real browser against the real server and a
-job board that exists only for these tests (`e2e/fixture-site.mjs`). An account is made, a robot is
+job board that exists only for these tests (`e2e/fixture-site.mjs`). An account is made, a scraper is
 built, run and found in its own history — the path a person actually walks.
 
 Neither touches the internet. A suite that depends on somebody else's site fails when somebody else
@@ -41,6 +41,6 @@ What each part is for, so a new test lands in the right place:
   show something after a button is pressed is proved here.
 - `test/wiring.test.mjs` — the front-end's two halves compared as text: every control the markup emits
   has a handler, and every handler puts its answer on the screen. This is what catches a dead button.
-- everything else — the engine: scenarios, quality, repair, robots, auth, proxies, the SOCKS5 bridge.
+- everything else — the engine: scenarios, quality, repair, scrapers, auth, proxies, the SOCKS5 bridge.
 
 A bug that reached a person is a missing test. Write that one first.

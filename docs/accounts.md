@@ -5,11 +5,11 @@ everything a person makes belongs to them.
 
 ## What a person gets
 
-- **their own robots** — `robots/u/<user id>/`, invisible to everyone else
+- **their own scrapers** — `robots/u/<user id>/`, invisible to everyone else
 - **their own Telegram session** — `secrets/telegram/<user id>.json`, connected and disconnected by them
 - **their own token** — signed with a key generated once and kept in `secrets/jwt.key`
 
-The first account created adopts any robots that already existed before there were accounts, so turning
+The first account created adopts any scrapers that already existed before there were accounts, so turning
 this on does not orphan the work of whoever was already running it.
 
 ## Signing up
@@ -31,7 +31,7 @@ permissions.
 
 ## The model key
 
-Building robots costs money — someone's money — so each account brings its own key rather than
+Building scrapers costs money — someone's money — so each account brings its own key rather than
 spending the server owner's. The Model section walks through it: create a key at openrouter.ai/keys,
 put a few dollars on it, paste it. The key is checked against the provider before it is stored (and the
 answer includes what is left on it), kept in `secrets/settings/<user id>.json` with owner-only
@@ -39,7 +39,7 @@ permissions, and shown afterwards only as its last four characters. **Delete key
 
 The model itself is chosen from the same section — only models that support tool calls are offered,
 cheapest first, with the price per million tokens next to each. A build costs fractions of a cent; a
-run costs nothing at all, because no model is involved once a robot exists.
+run costs nothing at all, because no model is involved once a scraper exists.
 
 If the server has `OPENROUTER_API_KEY` in its environment, that is used when an account has no key of
 its own — convenient for a single-user install, irrelevant once there are several.
@@ -53,16 +53,16 @@ owner-only like every other secret. The list shows the host and a hint of the us
 never sent to the browser side.
 
 A proxy is checked the only honest way: the browser goes out through it and reports which address the
-world saw. A robot built through a proxy keeps that proxy, because the address is part of how it works,
+world saw. A scraper built through a proxy keeps that proxy, because the address is part of how it works,
 and each address gets its own browser profile — switching mid-profile would mix two identities in one
 cookie jar, which is the thing a proxy exists to avoid.
 
-Telegram robots do not use these: they talk to Telegram through its own client, not a browser.
+Telegram scrapers do not use these: they talk to Telegram through its own client, not a browser.
 
 ## Browsers
 
 Every account gets its own browser and its own profile in `profiles/<user id>`, so cookies and storage
-picked up by one account's robot are invisible to another's. A headed Chromium is expensive, so only the
+picked up by one account's scraper are invisible to another's. A headed Chromium is expensive, so only the
 few most recently used stay open — `RATATOSK_MAX_BROWSERS`, three by default — and the rest are closed
 and started again on demand. Work inside one account is serialised; different accounts run in parallel.
 
@@ -85,7 +85,7 @@ speaks for by a token — the same token the web view issues, shown under **toke
 
 On an installation with no accounts at all the token is unnecessary and everything lives in the plain
 `robots/` directory — the single-user case stays simple. On an installation that has accounts, a
-missing token is refused rather than silently showing somebody else's robots.
+missing token is refused rather than silently showing somebody else's scrapers.
 
 ## Configuration
 
@@ -94,4 +94,4 @@ missing token is refused rather than silently showing somebody else's robots.
 | `RATATOSK_USERS` | where accounts live (default `secrets/users.json`) |
 | `RATATOSK_JWT_SECRET` / `RATATOSK_JWT_SECRET_FILE` | signing key, or where to keep the generated one |
 | `RATATOSK_TOKEN_TTL` | token lifetime in seconds (default 30 days) |
-| `RATATOSK_ROBOTS` | root of the robots directory |
+| `RATATOSK_ROBOTS` | root of the scrapers directory |

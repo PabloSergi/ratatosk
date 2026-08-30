@@ -1,7 +1,7 @@
 # Running it on a server
 
 Everything here assumes Docker and a machine you can reach over SSH. Nothing is published to the
-internet at any point: the web view can run robots and rewrite them, so it is a window onto a machine,
+internet at any point: the web view can run scrapers and rewrite them, so it is a window onto a machine,
 not a public service.
 
 ## Install
@@ -55,9 +55,9 @@ proxy **with authentication in front of it**.
    leaves the server whole. A separate cheap model can be set for what runs on every scrape.
 3. **Add a proxy** if the sites you want block datacentre addresses — HTTP or SOCKS5, with or without
    a password.
-4. **Build a robot**: paste a URL, say what you want in your own words, press Build. What comes back is
+4. **Build a scraper**: paste a URL, say what you want in your own words, press Build. What comes back is
    a scenario proven on a real page, not a promise.
-5. **Run it.** The Runs tab keeps every run, and each robot's card says how it has been doing lately.
+5. **Run it.** The Runs tab keeps every run, and each scraper's card says how it has been doing lately.
 
 ## Logs
 
@@ -79,7 +79,7 @@ git pull
 docker compose build web && docker compose up -d web
 ```
 
-Robots, run history, accounts and browser profiles live in volumes and folders next to the compose
+Scrapers, run history, accounts and browser profiles live in volumes and folders next to the compose
 file, so they survive the rebuild. What is worth backing up is small and boring:
 
 ```bash
@@ -132,7 +132,7 @@ node dist/mcp/server.js
 
 ## On a schedule
 
-There is no scheduler inside the platform on purpose — a robot is one command, and the host already has
+There is no scheduler inside the platform on purpose — a scraper is one command, and the host already has
 cron:
 
 ```cron
@@ -140,12 +140,12 @@ cron:
 ```
 
 A run that comes back `empty` or `broken` exits non-zero and says why, so a failure is visible to
-whatever watches the exit code — and `--repair` rebuilds the robot and shows what changed:
+whatever watches the exit code — and `--repair` rebuilds the scraper and shows what changed:
 
 ```bash
 docker compose run --rm web node dist/cli.js robots/jobs.json --repair
 ```
 
-On an installation with accounts, the command line needs to know whose robots it is running: make a key
+On an installation with accounts, the command line needs to know whose scrapers it is running: make a key
 in the view and pass it as `RATATOSK_TOKEN`. For driving it from n8n or anything else that already
 schedules and delivers, see [n8n.md](n8n.md).

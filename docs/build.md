@@ -1,4 +1,4 @@
-# Building a robot
+# Building a scraper
 
 Building is a loop, not one shot. A model that writes a whole scraper from a prompt is guessing, and a
 guess that half-works is the worst outcome there is: it produces rows, so nobody checks it. So the
@@ -32,7 +32,7 @@ an optimistic rule that would walk page one twenty times.
 ## save proves before it freezes
 
 A scenario is only written down after it has been run and produced rows. "It didn't save" is a much
-better outcome than a robot that returns nothing on Tuesday.
+better outcome than a scraper that returns nothing on Tuesday.
 
 ## The draft command
 

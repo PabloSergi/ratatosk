@@ -28,9 +28,9 @@ npm test                                                              # 159 test
 `draft` needs no API key: for an ordinary list it finds the rows itself. A key is only needed for pages
 where that fails, and for the parts described under **Rules** below.
 
-For the web view — accounts, robots, proxies, run history — see [docs/deploy.md](docs/deploy.md).
+For the web view — accounts, scrapers, proxies, run history — see [docs/deploy.md](docs/deploy.md).
 
-## What a robot is
+## What a scraper is
 
 A file. Here is the whole of one:
 
@@ -51,7 +51,7 @@ A file. Here is the whole of one:
 }
 ```
 
-Readable, editable by hand, diffable in review. Nothing about it is a black box, and a robot you did not
+Readable, editable by hand, diffable in review. Nothing about it is a black box, and a scraper you did not
 like is a file you can change.
 
 ## What it handles
@@ -60,7 +60,7 @@ like is a file you can change.
 and none at all. A walk that stops moving is detected by fingerprinting each page, so a "next" that
 quietly returns the same rows ends the run instead of looping forever.
 
-**Detail pages.** Lists are usually summaries — the pay is inside the card. A robot can walk into each
+**Detail pages.** Lists are usually summaries — the pay is inside the card. A scraper can walk into each
 row's link and bring fields back out, bounded by a row limit so a hundred-row page cannot become a
 hundred page loads by accident.
 
@@ -71,17 +71,17 @@ real messages before accepting it: a rule that keeps everything has decided noth
 eat its own finds is a leak, and a rule that keeps the wrong things is caught by reading its output back
 to the model. At run time it is regular expressions over text — no model, no per-message cost.
 
-**Memory.** The same posting gets reposted for weeks. A robot can remember what it has already handed
+**Memory.** The same posting gets reposted for weeks. A scraper can remember what it has already handed
 over — by link, or by a fingerprint of the text that survives a "⬆️ up" appended to the end — and return
 only what is new. It also forgets: something that disappeared for a month and came back is news again.
 
-**Proxies**, per account and per robot, HTTP or SOCKS5 with authentication. Chromium cannot do SOCKS5
+**Proxies**, per account and per scraper, HTTP or SOCKS5 with authentication. Chromium cannot do SOCKS5
 with a username and password, so the platform runs a small local bridge and hands the browser something
 it can use.
 
 **Doors it will not open.** Some sites answer a datacentre IP with a challenge. Ratatosk does not solve
 CAPTCHAs and will not: it opens the page in a browser **you** drive from your own screen, and once you
-are through, the cookies stay with that robot. See [docs/takeover.md](docs/takeover.md).
+are through, the cookies stay with that scraper. See [docs/takeover.md](docs/takeover.md).
 
 **Telegram.** Public channels are ordinary pages (`t.me/s/<channel>`). Groups have no page at all, so
 they are read through a real client with your own account — the session lives on your machine and is
@@ -105,14 +105,14 @@ is still what was asked for — and rewritten if it has drifted.
 
 ## Interfaces
 
-**The web view** — accounts, robots, runs, proxies, keys. Bound to localhost; reach it over a tunnel or a
+**The web view** — accounts, scrapers, runs, proxies, keys. Bound to localhost; reach it over a tunnel or a
 tailnet, never as a public address.
 
-**MCP** ([docs/mcp.md](docs/mcp.md)) — two separate surfaces: building robots (`open → look → try →
-paginate_probe → save`) and consuming data (`robots`, `fetch`). The consuming side never mentions a
+**MCP** ([docs/mcp.md](docs/mcp.md)) — two separate surfaces: building scrapers (`open → look → try →
+paginate_probe → save`) and consuming data (`scrapers`, `fetch`). The consuming side never mentions a
 selector.
 
-**HTTP**, for anything that already schedules things. There is deliberately no scheduler inside: a robot
+**HTTP**, for anything that already schedules things. There is deliberately no scheduler inside: a scraper
 is one call, and cron, n8n or your own code already know how to retry and deliver.
 See [docs/n8n.md](docs/n8n.md).
 

@@ -60,7 +60,7 @@ test('every action puts its answer on the screen', () => {
       /el\('[a-zA-Z]+'\)\.innerHTML/.test(entry) ||
       /\bload[A-Z]\w*\(/.test(entry) ||
       /\bresult\(/.test(entry) ||
-      /\b(runRobot|repairRobot)\(/.test(entry);
+      /\b(runScraper|repairScraper)\(/.test(entry);
     assert.ok(shows, `data-${attribute} does its work and then changes nothing on the page`);
   }
 });

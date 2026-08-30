@@ -56,7 +56,7 @@ export function judge(input: {
   }
 
   if (input.paginationProven === false) {
-    complaints.push('a next-page control was found but never worked — this robot would see only the first page');
+    complaints.push('a next-page control was found but never worked — this scraper would see only the first page');
   }
 
   return { good: complaints.length === 0, coverage, complaints };

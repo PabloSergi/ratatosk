@@ -5,7 +5,8 @@ import {
   badge,
   connectionCard,
   escapeHtml,
-  robotCard,
+  scraperCard,
+  proxyCard,
   rowsTable,
   stepsList,
   verdictBars,
@@ -62,8 +63,8 @@ test('steps and badges render what the engine reports', () => {
   assert.equal(badge('broken'), '<span class="badge broken">broken</span>');
 });
 
-test('a robot card offers exactly the two actions', () => {
-  const html = robotCard({ name: 'city-jobs', url: 'https://jobs.example.com', fields: ['title', 'link'], pagination: 'button' });
+test('a scraper card offers exactly the two actions', () => {
+  const html = scraperCard({ name: 'city-jobs', url: 'https://jobs.example.com', fields: ['title', 'link'], pagination: 'button' });
   assert.ok(html.includes('data-run="city-jobs"'));
   assert.ok(html.includes('data-repair="city-jobs"'));
   assert.ok(html.includes('title · link'));
@@ -94,7 +95,7 @@ test('an unchecked connection says so instead of showing nothing', () => {
     keyHint: '…1',
     active: false,
   });
-  assert.match(html, /press .Check./);
+  assert.match(html, /never checked/);
 });
 
 /**
@@ -119,7 +120,7 @@ test('a checked Telegram account shows what the check found', () => {
 
 test('an unchecked Telegram account says so instead of showing nothing', () => {
   const html = accountCard({ id: 'f7', account: '@someone' });
-  assert.match(html, /press .Check connection./);
+  assert.match(html, /never checked/);
   assert.ok(!html.includes('chats visible'));
 });
 
@@ -175,4 +176,69 @@ test('the live viewer asks for frames and sends what a person does', async () =>
   // Ending the session is what writes the profile, so it has to be possible from here.
   assert.match(html, /\/done'/, 'the window must be able to close the browser itself');
   assert.ok(html.includes('Save and close'));
+});
+
+/**
+ * The same question on four different things.
+ *
+ * A connection, a proxy, a Telegram account and a scraper break in unrelated ways, but "is this still
+ * working?" is one question, so it must be one control everywhere — and the answer must be a line of
+ * its own rather than a word lost among the facts. A card that quietly loses its check is a card that
+ * makes somebody run a scraper to find out what it could have told them.
+ */
+test('every card carries the same check control and says how it is underneath', () => {
+  const cards = {
+    connection: connectionCard({
+      id: 'c1',
+      label: 'OpenRouter',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      model: 'a/b',
+      keyHint: '…1',
+      active: true,
+      lastCheck: { at: new Date().toISOString(), ok: true, note: 'answered in 900 ms' },
+    }),
+    proxy: proxyCard({
+      id: 'p1',
+      label: 'US proxy',
+      scheme: 'socks5',
+      host: '198.51.100.7:1080',
+      exitIp: '198.51.100.7',
+      checkedAt: new Date().toISOString(),
+      latencyMs: 240,
+    }),
+    account: accountCard({
+      id: 'a1',
+      account: '@someone',
+      lastCheck: { at: new Date().toISOString(), ok: true, note: 'signed in, 42 chats visible' },
+    }),
+    scraper: scraperCard(
+      { name: 'city-jobs', url: 'https://jobs.example.com', fields: ['title'], pagination: 'none' },
+      undefined,
+      { at: new Date().toISOString(), ok: true, note: '20 rows on the first page' },
+    ),
+  };
+
+  for (const [what, html] of Object.entries(cards)) {
+    assert.match(html, /<button class="icon"[^>]*data-[a-z-]*check/, `${what} has no way to ask`);
+    assert.match(html, /class="state ok"/, `${what} does not say how it is`);
+  }
+});
+
+test('a card that has never been checked says so rather than looking fine', () => {
+  const proxy = proxyCard({ id: 'p1', label: 'US proxy', scheme: 'socks5', host: '198.51.100.7:1080' });
+  assert.match(proxy, /class="state muted"/);
+  assert.match(proxy, /never checked/);
+
+  // A failed check is not a missing one, and the two must not look alike.
+  const broken = connectionCard({
+    id: 'c1',
+    label: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    model: 'a/b',
+    keyHint: '…1',
+    active: true,
+    lastCheck: { at: new Date().toISOString(), ok: false, note: 'the provider answered 401' },
+  });
+  assert.match(broken, /class="state bad"/);
+  assert.match(broken, /401/);
 });

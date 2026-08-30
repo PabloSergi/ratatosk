@@ -20,7 +20,8 @@ import {
   escapeHtml,
   kindTabs,
   proxyCard,
-  robotCard,
+  scraperCard,
+  stateLine,
   rowsTable,
   runsList,
   keysList,
@@ -29,6 +30,22 @@ import {
   stepsList,
   verdictBars,
 } from './render.js';
+
+/**
+ * How long a check stays believable.
+ *
+ * Opening the page should tell you the truth without being asked, but ten openings in a quarter of an
+ * hour must not be ten rounds of asking providers, going out through proxies and waking Telegram
+ * sessions. So a card checks itself when what it says has gone stale, and stays quiet otherwise; the
+ * arrow on the card is there for when you want it now regardless.
+ */
+const FRESH_FOR_MS = 15 * 60 * 1000;
+
+function stale(at?: string): boolean {
+  if (!at) return true;
+  const when = new Date(at).getTime();
+  return !Number.isFinite(when) || Date.now() - when > FRESH_FOR_MS;
+}
 
 /** Wiring: which element does what. Everything that produces markup lives in render.ts. */
 const el = <T extends HTMLElement>(id: string): T => {
@@ -43,6 +60,19 @@ const value = (id: string): string =>
 const show = (id: string, visible: boolean): void => {
   el(id).hidden = !visible;
 };
+
+/**
+ * The icon that asks a question, while it is asking it. It keeps its shape — a card whose control
+ * changes width mid-check makes the whole list twitch — and simply turns.
+ */
+function spinning(button: HTMLButtonElement): () => void {
+  button.disabled = true;
+  button.classList.add('spinning');
+  return () => {
+    button.disabled = false;
+    button.classList.remove('spinning');
+  };
+}
 
 function busy(button: HTMLButtonElement, label: string): () => void {
   const original = button.textContent ?? '';
@@ -69,11 +99,11 @@ function fail(where: string, error: unknown): void {
 // --- views --------------------------------------------------------------------------------------
 
 /**
- * Four different things live here — robots, the models that build them, the addresses they go out
+ * Four different things live here — scrapers, the models that build them, the addresses they go out
  * from, and Telegram accounts — and they are not steps of one flow. So they are places, switched from
  * the header, rather than one scroll where everything shouts at once.
  */
-let view = localStorage.getItem('ratatosk.view') ?? 'robots';
+let view = localStorage.getItem('ratatosk.view') ?? 'scrapers';
 
 function showView(next: string): void {
   view = next;
@@ -133,38 +163,41 @@ async function enter(kind: 'login' | 'register'): Promise<void> {
   await loadEverything();
 }
 
-// --- robots -------------------------------------------------------------------------------------
+// --- scrapers -------------------------------------------------------------------------------------
 
 let shownKind = 'all';
 
-/** The robots as last listed. A card's buttons act on one of these, so they have to be to hand. */
+/** The scrapers as last listed. A card's buttons act on one of these, so they have to be to hand. */
 let known: RobotSummary[] = [];
 
-async function loadRobots(): Promise<void> {
+/** What a probe said about a scraper just now — newer than any run, and gone when the page is left. */
+const probes = new Map<string, { at: string; ok: boolean; note: string }>();
+
+async function loadScrapers(): Promise<void> {
   try {
-    const { robots } = await api.robots();
-    known = robots;
+    const { scrapers } = await api.scrapers();
+    known = scrapers;
 
     const counts = new Map<string, number>();
-    for (const robot of robots) counts.set(robot.kind, (counts.get(robot.kind) ?? 0) + 1);
+    for (const scraper of scrapers) counts.set(scraper.kind, (counts.get(scraper.kind) ?? 0) + 1);
     if (shownKind !== 'all' && !counts.has(shownKind)) shownKind = 'all';
 
     el('kinds').innerHTML =
       counts.size > 1 ? kindTabs([...counts].map(([kind, count]) => ({ kind, count })), shownKind) : '';
 
-    // How each robot is doing, fetched beside the list: a card that cannot say that is half a card.
+    // How each scraper is doing, fetched beside the list: a card that cannot say that is half a card.
     const how = new Map((await api.history().catch(() => ({ standing: [] }))).standing.map((entry) => [entry.robot, entry]));
 
-    const shown = shownKind === 'all' ? robots : robots.filter((robot) => robot.kind === shownKind);
-    el('robots').innerHTML = shown.length
-      ? shown.map((robot) => robotCard(robot, how.get(robot.name))).join('')
+    const shown = shownKind === 'all' ? scrapers : scrapers.filter((scraper) => scraper.kind === shownKind);
+    el('scrapers').innerHTML = shown.length
+      ? shown.map((scraper) => scraperCard(scraper, how.get(scraper.name), probes.get(scraper.name))).join('')
       : '<span class="muted">nothing of that kind yet</span>';
   } catch (error) {
-    fail('robots', error);
+    fail('scrapers', error);
   }
 }
 
-async function runRobot(name: string, button: HTMLButtonElement): Promise<void> {
+async function runScraper(name: string, button: HTMLButtonElement): Promise<void> {
   const done = busy(button, 'running');
   // The panel keeps the last answer until this one arrives, and a stale answer under a running button
   // reads as the new one. Say what is happening instead.
@@ -189,13 +222,13 @@ async function runRobot(name: string, button: HTMLButtonElement): Promise<void> 
   }
 }
 
-async function repairRobot(name: string, button: HTMLButtonElement): Promise<void> {
+async function repairScraper(name: string, button: HTMLButtonElement): Promise<void> {
   const done = busy(button, 'repairing');
   result(name, '<span class="muted">repairing…</span>');
   try {
     const repair = await api.repair(name);
 
-    // A robot has two halves that rot in different ways, and a repair may touch either or both.
+    // A scraper has two halves that rot in different ways, and a repair may touch either or both.
     const selectors = repair.status
       ? repair.status === 'repaired'
         ? `${badge('ok')} selectors repaired — <b>${repair.after?.rows.length ?? 0} rows</b> where there were ${repair.before?.rows.length ?? 0}`
@@ -222,7 +255,7 @@ async function repairRobot(name: string, button: HTMLButtonElement): Promise<voi
         (diff.length ? `<pre>${diff.map(escapeHtml).join('\n')}</pre>` : '') +
         rowsTable(repair.after?.rows),
     );
-    await loadRobots();
+    await loadScrapers();
   } catch (error) {
     result(
       `${name} — repair`,
@@ -301,7 +334,7 @@ el('agent').addEventListener('click', async () => {
         rowsTable(build.rows),
     );
     void loadRuns();
-    if (good) await loadRobots();
+    if (good) await loadScrapers();
   } catch (error) {
     fail('buildOut', error);
   } finally {
@@ -328,7 +361,7 @@ el('draft').addEventListener('click', async () => {
         verdictBars(draft.verdict) +
         `<pre>${escapeHtml(JSON.stringify(draft.scenario, null, 2))}</pre>`,
     );
-    await loadRobots();
+    await loadScrapers();
   } catch (error) {
     fail('buildOut', error);
   } finally {
@@ -336,7 +369,7 @@ el('draft').addEventListener('click', async () => {
   }
 });
 
-/** A Telegram robot is made where every other robot is made, not on the page where accounts live. */
+/** A Telegram scraper is made where every other scraper is made, not on the page where accounts live. */
 /**
  * What the model made of the task, in the only terms that mean anything: how many real messages the
  * rule kept, which ones, and what it threw away. A rule nobody can check is a rule nobody should trust.
@@ -347,7 +380,7 @@ function siftNote(sift?: { built: boolean; attempts: SiftAttempt[]; usage: { cal
   if (!sift.built || !last) {
     return `<div class="meta spaced">${badge('weak')} no rule separated these messages${
       sift.reason ? ` — ${escapeHtml(sift.reason)}` : ''
-    }. The robot keeps everything for now.</div>`;
+    }. The scraper keeps everything for now.</div>`;
   }
 
   const patterns = [
@@ -381,15 +414,15 @@ el('tgCreate').addEventListener('click', async () => {
     });
 
     result(
-      `${created.robot.name} — telegram robot`,
-      `${badge('ok')} created for ${created.robot.channels.map(escapeHtml).join(', ')}` +
+      `${created.scraper.name} — telegram scraper`,
+      `${badge('ok')} created for ${created.scraper.channels.map(escapeHtml).join(', ')}` +
         siftNote(created.sift) +
         '<div class="meta spaced">press Run in the list below to read it</div>',
     );
-    await loadRobots();
+    await loadScrapers();
   } catch (error) {
     result(
-      'telegram robot',
+      'telegram scraper',
       `<span class="broken">${escapeHtml(error instanceof Error ? error.message : error)}</span>`,
     );
   } finally {
@@ -456,8 +489,8 @@ async function loadConnections(): Promise<void> {
 
     el('llmList').innerHTML = answer.connections.map(connectionCard).join('');
     el('llmStatus').innerHTML = answer.connections.length
-      ? `<span class="muted">${answer.connections.length} connection${answer.connections.length > 1 ? 's' : ''} — the one marked “in use” builds your robots</span>`
-      : '<span class="muted">no connection yet — the model cannot build robots until one is here</span>';
+      ? `<span class="muted">${answer.connections.length} connection${answer.connections.length > 1 ? 's' : ''} — the one marked “in use” builds your scrapers</span>`
+      : '<span class="muted">no connection yet — the model cannot build scrapers until one is here</span>';
   } catch (error) {
     fail('llmStatus', error);
   }
@@ -525,15 +558,15 @@ async function loadProxies(): Promise<void> {
     const { proxies } = await api.proxies();
     el('proxyList').innerHTML = proxies.map(proxyCard).join('');
     el('proxyStatus').innerHTML = proxies.length
-      ? `<span class="muted">${proxies.length} address${proxies.length > 1 ? 'es' : ''} — a robot keeps the one it was built through</span>`
-      : '<span class="muted">no proxies — robots go out from this machine&rsquo;s own address</span>';
+      ? `<span class="muted">${proxies.length} address${proxies.length > 1 ? 'es' : ''} — a scraper keeps the one it was built through</span>`
+      : '<span class="muted">no proxies — scrapers go out from this machine&rsquo;s own address</span>';
 
     const menu =
       '<option value="">direct</option>' +
       proxies.map((proxy) => `<option value="${escapeHtml(proxy.id)}">${escapeHtml(proxy.label)}</option>`).join('');
 
     // The way out is remembered. A page that quietly resets this to "direct" on every reload sends a
-    // robot from the wrong address, and the site answers with a door — which looks like the door being
+    // scraper from the wrong address, and the site answers with a door — which looks like the door being
     // broken rather than like the address being wrong.
     const chosen = localStorage.getItem('ratatosk.proxy') ?? '';
     const select = el<HTMLSelectElement>('buildProxy');
@@ -570,7 +603,7 @@ el('proxyAdd').addEventListener('click', async () => {
  * Taking the browser over. It opens in a tab of its own rather than in a panel here: a screen inside a
  * page is a screen you fight with, and this is the moment someone needs the mouse to behave.
  */
-// --- what the robots have been doing ---------------------------------------------------------------
+// --- what the scrapers have been doing ---------------------------------------------------------------
 
 async function loadRuns(): Promise<void> {
   try {
@@ -578,8 +611,8 @@ async function loadRuns(): Promise<void> {
     const broken = standing.filter((entry) => entry.status !== 'ok');
     el('runsStatus').innerHTML = standing.length
       ? broken.length
-        ? `${badge('broken')} ${broken.length} of ${standing.length} robots need looking at`
-        : `${badge('ok')} all ${standing.length} robots came back with rows`
+        ? `${badge('broken')} ${broken.length} of ${standing.length} scrapers need looking at`
+        : `${badge('ok')} all ${standing.length} scrapers came back with rows`
       : '<span class="muted">nothing has run yet</span>';
     el('runsList').innerHTML = runsList(runs);
   } catch (error) {
@@ -649,7 +682,7 @@ async function loadTelegram(): Promise<void> {
     const { accounts } = await api.telegramAccounts();
     el('tgList').innerHTML = accounts.map(accountCard).join('');
     el('tgStatus').innerHTML = accounts.length
-      ? `<span class="muted">${accounts.length} account${accounts.length > 1 ? 's' : ''} connected — a robot names the one it reads with</span>`
+      ? `<span class="muted">${accounts.length} account${accounts.length > 1 ? 's' : ''} connected — a scraper names the one it reads with</span>`
       : '<span class="muted">no account connected — public channels work without one, groups do not</span>';
 
     el<HTMLSelectElement>('tgAccount').innerHTML = accounts.length
@@ -659,8 +692,8 @@ async function loadTelegram(): Promise<void> {
       : '<option value="">— no account —</option>';
 
     el('tgRobotNote').innerHTML = accounts.length
-      ? 'List the channels and groups by username, without the @. The robot takes that many recent messages from each; the filter keeps only messages containing one of those words.'
-      : 'Public channels can be read as pages — build them as a <b>website</b> robot on <code>t.me/s/&lt;channel&gt;</code>. Groups need an account: connect one under <b>Telegram</b>.';
+      ? 'List the channels and groups by username, without the @. The scraper takes that many recent messages from each; the filter keeps only messages containing one of those words.'
+      : 'Public channels can be read as pages — build them as a <b>website</b> scraper on <code>t.me/s/&lt;channel&gt;</code>. Groups need an account: connect one under <b>Telegram</b>.';
 
     if (!accounts.length) telegramStep(1);
   } catch (error) {
@@ -710,7 +743,7 @@ document.addEventListener('click', async (event) => {
   const kindTab = target.closest<HTMLElement>('.tab[data-kind]');
   if (kindTab) {
     shownKind = kindTab.dataset['kind'] ?? 'all';
-    void loadRobots();
+    void loadScrapers();
     return;
   }
 
@@ -728,22 +761,32 @@ document.addEventListener('click', async (event) => {
   if (!(target instanceof HTMLButtonElement)) return;
 
   const actions: Array<[string, string, (id: string) => Promise<void>]> = [
-    ['data-run', 'robots', async (id) => runRobot(id, target)],
-    ['data-repair', 'robots', async (id) => repairRobot(id, target)],
-    ['data-rule', 'robots', async (id) => {
+    ['data-run', 'scrapers', async (id) => runScraper(id, target)],
+    ['data-scraper-check', 'scrapers', async (id) => {
+      const done = spinning(target);
+      try {
+        const seen = await api.checkScraper(id);
+        probes.set(id, { at: seen.at, ok: seen.ok, note: seen.note });
+        await loadScrapers();
+      } finally {
+        done();
+      }
+    }],
+    ['data-repair', 'scrapers', async (id) => repairScraper(id, target)],
+    ['data-rule', 'scrapers', async (id) => {
       const rule = await api.rule(id);
       result(`${id} — what it keeps`, ruleEditor(id, rule.sift, rule.remember));
     }],
-    ['data-rule-test', 'robots', async (id) => {
+    ['data-rule-test', 'scrapers', async (id) => {
       const done = busy(target, 'collecting');
       try {
-        el('ruleOut').innerHTML = '<span class="muted">reading the source as the robot reads it…</span>';
+        el('ruleOut').innerHTML = '<span class="muted">reading the source as the scraper reads it…</span>';
         el('ruleOut').innerHTML = ruleVerdict(await api.testRule(id, ruleFromEditor()));
       } finally {
         done();
       }
     }],
-    ['data-rule-rebuild', 'robots', async (id) => {
+    ['data-rule-rebuild', 'scrapers', async (id) => {
       const done = busy(target, 'the model is reading');
       try {
         el('ruleOut').innerHTML = '<span class="muted">collecting fresh material and writing the rule again…</span>';
@@ -763,25 +806,25 @@ document.addEventListener('click', async (event) => {
         done();
       }
     }],
-    ['data-rule-save', 'robots', async (id) => {
+    ['data-rule-save', 'scrapers', async (id) => {
       const done = busy(target, 'saving');
       try {
         const saved = await api.saveRule(id, ruleFromEditor(), el<HTMLInputElement>('ruleRemember').checked);
         el('ruleOut').innerHTML =
           (saved.sift
             ? `${badge('ok')} saved — the previous rule is kept beside it as .previous.json`
-            : `${badge('empty')} saved with no rule — this robot now keeps everything it collects`) +
+            : `${badge('empty')} saved with no rule — this scraper now keeps everything it collects`) +
           (saved.remember
             ? '<div class="meta">it will hand back only what it has not seen before</div>'
             : '<div class="meta">it will hand back everything it collects, every time</div>');
-        await loadRobots();
+        await loadScrapers();
       } finally {
         done();
       }
     }],
-    ['data-delete', 'robots', async (id) => {
+    ['data-delete', 'scrapers', async (id) => {
       // Deleting is one click too easy to do by accident, so the first one only asks. The file itself
-      // is moved aside rather than destroyed — a robot is minutes of a model's work.
+      // is moved aside rather than destroyed — a scraper is minutes of a model's work.
       if (target.dataset['sure'] !== id) {
         target.dataset['sure'] = id;
         target.textContent = 'really?';
@@ -807,7 +850,7 @@ document.addEventListener('click', async (event) => {
                 ? ` — ${escapeHtml(gone.kept)}, so the profile keeps what it knows`
                 : ''),
         );
-        await Promise.all([loadRobots(), loadRuns()]);
+        await Promise.all([loadScrapers(), loadRuns()]);
       } finally {
         done();
       }
@@ -825,7 +868,7 @@ document.addEventListener('click', async (event) => {
       await loadConnections();
     }],
     ['data-check-connection', 'llmStatus', async (id) => {
-      const done = busy(target, 'asking');
+      const done = spinning(target);
       try {
         const checked = await api.checkConnection(id);
         el('llmStatus').innerHTML = `${badge(checked.ok ? 'ok' : 'broken')} ${escapeHtml(checked.note)}`;
@@ -835,7 +878,7 @@ document.addEventListener('click', async (event) => {
       }
     }],
     ['data-proxy-check', 'proxyStatus', async (id) => {
-      const done = busy(target, 'going out');
+      const done = spinning(target);
       try {
         const seen = await api.checkProxy(id);
         el('proxyStatus').innerHTML =
@@ -847,11 +890,11 @@ document.addEventListener('click', async (event) => {
     }],
     ['data-proxy-remove', 'proxyStatus', async (id) => {
       await api.removeProxy(id);
-      await Promise.all([loadProxies(), loadRobots()]);
+      await Promise.all([loadProxies(), loadScrapers()]);
     }],
     ['data-tg-forget', 'tgStatus', async (id) => {
       await api.telegramForget(id);
-      await Promise.all([loadTelegram(), loadRobots()]);
+      await Promise.all([loadTelegram(), loadScrapers()]);
     }],
     ['data-key-revoke', 'keysStatus', async (id) => {
       const revoked = await api.revokeKey(id);
@@ -859,7 +902,7 @@ document.addEventListener('click', async (event) => {
       el('keysStatus').innerHTML = '<span class="muted">revoked — whatever was using it stops now</span>';
     }],
     ['data-tg-check', 'tgStatus', async (id) => {
-      const done = busy(target, 'asking Telegram');
+      const done = spinning(target);
       try {
         const state = await api.telegramCheck(id);
         el('tgStatus').innerHTML = `${badge(state.lastCheck?.ok === false ? 'broken' : 'ok')} ${escapeHtml(
@@ -911,7 +954,59 @@ window.addEventListener('unhandledrejection', (event) => {
 });
 
 async function loadEverything(): Promise<void> {
-  await Promise.all([loadRobots(), loadRuns(), loadKeys(), loadConnections(), loadProxies(), loadTelegram()]);
+  await Promise.all([loadScrapers(), loadRuns(), loadKeys(), loadConnections(), loadProxies(), loadTelegram()]);
+  void freshen();
+}
+
+/**
+ * Bringing what the cards say up to date, without being asked.
+ *
+ * A page that shows a proxy checked yesterday is telling you about yesterday. So on opening, anything
+ * whose last check has gone stale is checked again — and nothing else is, which is the whole point: the
+ * timestamps come from the server, so ten openings in a quarter of an hour cost one round of checks, not
+ * ten. Scrapers are deliberately not in here: checking one opens a browser on a real site, and doing
+ * that to fifteen of them because somebody opened a page would be a denial of service with our name on
+ * it. Their line already says how their last run went, for free, and the arrow is there for the rest.
+ *
+ * Failures are swallowed on purpose. This is the page telling itself the truth in the background; a
+ * proxy that is down is news the card will carry, not an error to throw in somebody's face.
+ */
+async function freshen(): Promise<void> {
+  try {
+    const [{ connections }, { proxies }, { accounts }] = await Promise.all([
+      api.models(),
+      api.proxies(),
+      api.telegramAccounts(),
+    ]);
+
+    let asked = false;
+    // One at a time: each of these goes out to somebody else's service, and three at once from one
+    // account looks like something other than a page being opened.
+    for (const connection of connections) {
+      if (!stale(connection.lastCheck?.at)) continue;
+      await api.checkConnection(connection.id).catch(() => undefined);
+      asked = true;
+    }
+    if (asked) await loadConnections();
+
+    asked = false;
+    for (const proxy of proxies) {
+      if (!stale(proxy.checkedAt)) continue;
+      await api.checkProxy(proxy.id).catch(() => undefined);
+      asked = true;
+    }
+    if (asked) await loadProxies();
+
+    asked = false;
+    for (const account of accounts) {
+      if (!stale(account.lastCheck?.at)) continue;
+      await api.telegramCheck(account.id).catch(() => undefined);
+      asked = true;
+    }
+    if (asked) await loadTelegram();
+  } catch {
+    // Nothing here is worth interrupting anybody over.
+  }
 }
 
 void (async () => {

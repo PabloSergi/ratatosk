@@ -5,11 +5,11 @@ Two kinds of source live behind the same word, and they need different things.
 ## Public channels — nothing to set up
 
 A public channel has a web preview at `t.me/s/<channel>`, which is an ordinary page with an ordinary
-list on it. Build a robot for it the way you would for any site: paste the URL, say what you want.
+list on it. Build a scraper for it the way you would for any site: paste the URL, say what you want.
 
 History is walked by cursor rather than by a "next" button — `?before=<id>` — and the shipped rule in
 `rules/telegram.json` tells the engine so. It is still proven by use: if the walk does not move, the
-robot is honest about covering one page.
+scraper is honest about covering one page.
 
 ## Groups — your own account
 
@@ -24,7 +24,7 @@ The operator view walks through it as three lit steps, and every value stays on 
 2. **Type the code.** It arrives *inside Telegram*, from the account called "Telegram" — not by SMS
    unless no other device is signed in. If the account has two-step verification, its password goes in
    the second field; otherwise leave it empty.
-3. **Make a robot.** The form appears as soon as you are connected: channels and groups by username,
+3. **Make a scraper.** The form appears as soon as you are connected: channels and groups by username,
    how many recent messages to take, and an optional word filter.
 
 The session is written to `secrets/telegram.json` with owner-only permissions, on the machine running
@@ -34,7 +34,7 @@ deletes it.
 Nobody else — not the maintainers, not a hosted service, not a model — sees the code or the password.
 That is the point of doing the login here rather than asking someone to do it for you.
 
-## A Telegram robot
+## A Telegram scraper
 
 ```json
 {
@@ -49,7 +49,7 @@ That is the point of doing the login here rather than asking someone to do it fo
 
 `limit` is how many recent messages to take from each channel; `contains` keeps only messages carrying
 one of those words, and may be omitted. Rows come back as `channel`, `id`, `date`, `text`, `link` —
-the same shape as any other robot, so `fetch` and the run view treat them identically.
+the same shape as any other scraper, so `fetch` and the run view treat them identically.
 
-Repair does not apply: there are no selectors to rot. If a robot returns nothing, either the account
+Repair does not apply: there are no selectors to rot. If a scraper returns nothing, either the account
 lost access to the group or the filter is too tight, and the run says which.

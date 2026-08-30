@@ -1,13 +1,13 @@
 # Taking the browser over
 
 Some doors are meant for a person and should stay that way: a check that asks whether you are one, a
-login, a consent screen, an age gate. Ratatosk does not try to get a robot past them. It does the
-opposite — it hands you the robot's own browser for a minute.
+login, a consent screen, an age gate. Ratatosk does not try to get a scraper past them. It does the
+opposite — it hands you the scraper's own browser for a minute.
 
     Proxies → Open a page yourself → the address → Open it myself
 
 A tab opens with the browser running on the server. You do the thing by hand. What the site leaves
-behind — a cookie, a session — stays in the profile that robot uses, so its next run arrives as a
+behind — a cookie, a session — stays in the profile that scraper uses, so its next run arrives as a
 returning visitor rather than as a stranger.
 
 ## What it is made of
@@ -44,14 +44,14 @@ is no reason to put up with it. So the browser can open here instead, and the se
 
     node scripts/pass-gate.mjs --server https://your-ratatosk --url https://site/list --proxy <id>
 
-It signs in as you, asks the server which way out that robot uses, opens a real Chromium on your
+It signs in as you, asks the server which way out that scraper uses, opens a real Chromium on your
 machine **through that same proxy**, and waits. You deal with the gate at the speed of your own
-hardware. When you press Enter, the cookies for that site are carried into the profile the robot uses
-on the server, and the robot's next run arrives as whoever you just were.
+hardware. When you press Enter, the cookies for that site are carried into the profile the scraper uses
+on the server, and the scraper's next run arrives as whoever you just were.
 
 Your laptop and the server are not the same kind of computer, and a browser announces that. If the
 gate ties its answer to it, run the helper again with `--match-agent` and this browser will introduce
-itself the way the robot's does — the person passing the gate is still you.
+itself the way the scraper's does — the person passing the gate is still you.
 
 The proxy is not optional decoration. These gates tie what they hand you to the address you came
 from; pass the check from your home connection and the cookie is worthless to a server in another
@@ -77,6 +77,6 @@ reaches it.
 ## What this is not
 
 It is not a way past a check that a machine is not supposed to pass. There is no solver here, no
-service that answers puzzles for money, and no tool that hands one to a model — a robot that could
+service that answers puzzles for money, and no tool that hands one to a model — a scraper that could
 get itself past a "prove you are human" gate would be lying about what it is. A person does it, once,
-and the robot goes on being a robot.
+and the scraper goes back to being a machine that only reads pages.
