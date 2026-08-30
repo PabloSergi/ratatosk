@@ -1,3 +1,5 @@
+import { mkdirSync } from 'node:fs';
+
 import { defineConfig } from '@playwright/test';
 
 /**
@@ -8,6 +10,11 @@ import { defineConfig } from '@playwright/test';
  * Nothing here touches the internet: a suite that depends on somebody else's site fails when somebody
  * else deploys, and a test that fails for reasons of its own teaches people to ignore tests.
  */
+// The throwaway directory the product runs in. It is not in the repository, so a fresh clone has to
+// make it before a server can be started there — otherwise the spawn fails with an ENOENT nobody reads
+// as "that folder is missing".
+mkdirSync('e2e/.data', { recursive: true });
+
 export default defineConfig({
   testDir: 'e2e',
   testMatch: '**/*.spec.ts',
