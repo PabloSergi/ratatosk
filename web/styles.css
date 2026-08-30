@@ -364,6 +364,25 @@ pre {
 .state .meta { color: var(--ink-faint); }
 .state.checking { opacity: 0.6; }
 
+/* The state line is also the way into the story behind it, so it has to look pressable without
+   becoming a button in a row of buttons: no border, no background, just a hand and a mark. */
+button.opener {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+button.opener:hover:not(:disabled) { border-color: transparent; }
+button.opener:hover .state { text-decoration: underline dotted; text-underline-offset: 3px; }
+
+.history { margin-top: 10px; border-top: 1px solid var(--edge); padding-top: 8px; }
+table.runs { width: 100%; border-collapse: collapse; font: 12px/1.7 var(--mono); }
+table.runs td { padding: 3px 10px 3px 0; vertical-align: top; color: var(--ink-dim); }
+table.runs td:last-child { color: var(--ink-faint); }
+
 /* The one control that asks a question rather than doing a thing, so it is a mark and not a word. */
 button.icon {
   padding: 6px 10px;

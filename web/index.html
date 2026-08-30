@@ -12,10 +12,10 @@
   <div id="who" class="meta" hidden></div>
   <nav id="views" class="app" hidden>
     <button class="view-tab on" data-view="scrapers">Scrapers</button>
-    <button class="view-tab" data-view="runs">Runs</button>
     <button class="view-tab" data-view="model">Model</button>
     <button class="view-tab" data-view="proxies">Proxies</button>
     <button class="view-tab" data-view="telegram">Telegram</button>
+    <button class="view-tab" data-view="keys">Keys</button>
   </nav>
 </header>
 
@@ -90,27 +90,19 @@
 
   <section class="app" data-view="scrapers" hidden>
     <h2>Scrapers</h2>
+    <div id="runsStatus" class="meta">checking…</div>
     <div class="tabs" id="kinds"></div>
     <div id="scrapers" class="meta">loading…</div>
   </section>
 
-  <!-- RUNS ------------------------------------------------------------------------------------>
-  <section class="app" data-view="runs" hidden>
-    <h2>How the scrapers are doing</h2>
-    <div id="runsStatus" class="meta">checking…</div>
+  <!-- KEYS ------------------------------------------------------------------------------------>
+  <section class="app" data-view="keys" hidden>
+    <h2>Keys for machines</h2>
     <p class="meta">
-      A scraper that returns eleven rows tells you nothing; eleven where yesterday there were four hundred
-      tells you the site changed under it. Every run leaves a line here — what came back, how long it
-      took, and why it stopped there.
-    </p>
-    <div id="runsList"></div>
-
-    <h2 class="spaced">Keys for machines</h2>
-    <p class="meta">
-      A schedule in n8n, a cron, somebody else's script — they need a credential that outlives a login.
+      A schedule in n8n, a cron, somebody else&rsquo;s script — they need a credential that outlives a login.
       Your own token expires in a month; a key does not, is named so you know a year later what it was
       for, and is revoked on its own without disturbing the others. See
-      <a href="https://github.com/ratatosk/ratatosk/blob/main/docs/n8n.md">docs/n8n.md</a> for the exact
+      <a href="https://github.com/PabloSergi/ratatosk/blob/main/docs/n8n.md">docs/n8n.md</a> for the exact
       setup.
     </p>
     <div class="row">

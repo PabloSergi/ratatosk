@@ -23,7 +23,7 @@ import {
   scraperCard,
   stateLine,
   rowsTable,
-  runsList,
+  scraperHistory,
   keysList,
   ruleEditor,
   ruleVerdict,
@@ -605,16 +605,22 @@ el('proxyAdd').addEventListener('click', async () => {
  */
 // --- what the scrapers have been doing ---------------------------------------------------------------
 
+/**
+ * One line above the list: how the whole lot is doing.
+ *
+ * Each scraper carries its own story under its own card, which is where anybody actually looks for it.
+ * What a list of fifteen cannot say by itself is the only thing worth saying about all of them at once —
+ * whether any of them needs a person today.
+ */
 async function loadRuns(): Promise<void> {
   try {
-    const { runs, standing } = await api.history();
+    const { standing } = await api.history();
     const broken = standing.filter((entry) => entry.status !== 'ok');
     el('runsStatus').innerHTML = standing.length
       ? broken.length
         ? `${badge('broken')} ${broken.length} of ${standing.length} scrapers need looking at`
         : `${badge('ok')} all ${standing.length} scrapers came back with rows`
       : '<span class="muted">nothing has run yet</span>';
-    el('runsList').innerHTML = runsList(runs);
   } catch (error) {
     fail('runsStatus', error);
   }
@@ -758,12 +764,28 @@ document.addEventListener('click', async (event) => {
     return;
   }
 
-  if (!(target instanceof HTMLButtonElement)) return;
+  // A press lands on whatever happens to be under the finger — a span inside a button, the state line
+  // inside the control that opens a scraper's history. The action belongs to the button around it.
+  const pressed = target.closest<HTMLButtonElement>('button');
+  if (!pressed) return;
 
   const actions: Array<[string, string, (id: string) => Promise<void>]> = [
-    ['data-run', 'scrapers', async (id) => runScraper(id, target)],
+    ['data-run', 'scrapers', async (id) => runScraper(id, pressed)],
+    ['data-scraper-history', 'scrapers', async (id) => {
+      const panel = document.querySelector<HTMLElement>(`[data-history-for="${CSS.escape(id)}"]`);
+      if (!panel) return;
+      if (!panel.hidden) {
+        panel.hidden = true;
+        return;
+      }
+
+      panel.hidden = false;
+      panel.innerHTML = '<span class="muted">reading…</span>';
+      const { runs } = await api.history(id);
+      panel.innerHTML = scraperHistory(runs);
+    }],
     ['data-scraper-check', 'scrapers', async (id) => {
-      const done = spinning(target);
+      const done = spinning(pressed);
       try {
         const seen = await api.checkScraper(id);
         probes.set(id, { at: seen.at, ok: seen.ok, note: seen.note });
@@ -772,13 +794,13 @@ document.addEventListener('click', async (event) => {
         done();
       }
     }],
-    ['data-repair', 'scrapers', async (id) => repairScraper(id, target)],
+    ['data-repair', 'scrapers', async (id) => repairScraper(id, pressed)],
     ['data-rule', 'scrapers', async (id) => {
       const rule = await api.rule(id);
       result(`${id} — what it keeps`, ruleEditor(id, rule.sift, rule.remember));
     }],
     ['data-rule-test', 'scrapers', async (id) => {
-      const done = busy(target, 'collecting');
+      const done = busy(pressed, 'collecting');
       try {
         el('ruleOut').innerHTML = '<span class="muted">reading the source as the scraper reads it…</span>';
         el('ruleOut').innerHTML = ruleVerdict(await api.testRule(id, ruleFromEditor()));
@@ -787,7 +809,7 @@ document.addEventListener('click', async (event) => {
       }
     }],
     ['data-rule-rebuild', 'scrapers', async (id) => {
-      const done = busy(target, 'the model is reading');
+      const done = busy(pressed, 'the model is reading');
       try {
         el('ruleOut').innerHTML = '<span class="muted">collecting fresh material and writing the rule again…</span>';
         const written = await api.rebuildRule(id, value('ruleWant'));
@@ -807,7 +829,7 @@ document.addEventListener('click', async (event) => {
       }
     }],
     ['data-rule-save', 'scrapers', async (id) => {
-      const done = busy(target, 'saving');
+      const done = busy(pressed, 'saving');
       try {
         const saved = await api.saveRule(id, ruleFromEditor(), el<HTMLInputElement>('ruleRemember').checked);
         el('ruleOut').innerHTML =
@@ -825,20 +847,20 @@ document.addEventListener('click', async (event) => {
     ['data-delete', 'scrapers', async (id) => {
       // Deleting is one click too easy to do by accident, so the first one only asks. The file itself
       // is moved aside rather than destroyed — a scraper is minutes of a model's work.
-      if (target.dataset['sure'] !== id) {
-        target.dataset['sure'] = id;
-        target.textContent = 'really?';
-        target.classList.add('danger');
+      if (pressed.dataset['sure'] !== id) {
+        pressed.dataset['sure'] = id;
+        pressed.textContent = 'really?';
+        pressed.classList.add('danger');
         setTimeout(() => {
-          if (target.dataset['sure'] !== id) return;
-          delete target.dataset['sure'];
-          target.textContent = 'Delete';
-          target.classList.remove('danger');
+          if (pressed.dataset['sure'] !== id) return;
+          delete pressed.dataset['sure'];
+          pressed.textContent = 'Delete';
+          pressed.classList.remove('danger');
         }, 4000);
         return;
       }
 
-      const done = busy(target, 'deleting');
+      const done = busy(pressed, 'deleting');
       try {
         const gone = await api.deleteRobot(id);
         result(
@@ -868,7 +890,7 @@ document.addEventListener('click', async (event) => {
       await loadConnections();
     }],
     ['data-check-connection', 'llmStatus', async (id) => {
-      const done = spinning(target);
+      const done = spinning(pressed);
       try {
         const checked = await api.checkConnection(id);
         el('llmStatus').innerHTML = `${badge(checked.ok ? 'ok' : 'broken')} ${escapeHtml(checked.note)}`;
@@ -878,7 +900,7 @@ document.addEventListener('click', async (event) => {
       }
     }],
     ['data-proxy-check', 'proxyStatus', async (id) => {
-      const done = spinning(target);
+      const done = spinning(pressed);
       try {
         const seen = await api.checkProxy(id);
         el('proxyStatus').innerHTML =
@@ -902,7 +924,7 @@ document.addEventListener('click', async (event) => {
       el('keysStatus').innerHTML = '<span class="muted">revoked — whatever was using it stops now</span>';
     }],
     ['data-tg-check', 'tgStatus', async (id) => {
-      const done = spinning(target);
+      const done = spinning(pressed);
       try {
         const state = await api.telegramCheck(id);
         el('tgStatus').innerHTML = `${badge(state.lastCheck?.ok === false ? 'broken' : 'ok')} ${escapeHtml(
@@ -916,7 +938,7 @@ document.addEventListener('click', async (event) => {
   ];
 
   for (const [attribute, where, run] of actions) {
-    const id = target.getAttribute(attribute);
+    const id = pressed.getAttribute(attribute);
     if (!id) continue;
     try {
       await run(id);

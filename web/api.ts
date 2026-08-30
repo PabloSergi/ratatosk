@@ -132,7 +132,7 @@ export const api = {
       proxy,
     }),
   releaseBrowser: () => post<{ released: true }>('/api/browser/release', {}),
-  history: (scraper?: string) => post<{ runs: Run[]; standing: Standing[] }>('/api/history', { scraper }),
+  history: (scraper?: string) => post<{ runs: Run[]; standing: Standing[] }>('/api/history', { robot: scraper }),
 
   keys: () => post<{ keys: KeyView[] }>('/api/keys', {}),
   createKey: (label: string) => post<{ key: string; keys: KeyView[] }>('/api/keys/create', { label }),

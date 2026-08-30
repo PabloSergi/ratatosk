@@ -42,11 +42,11 @@ test('an account is made, a scraper is built, run, and remembered', async ({ pag
   await expect(page.locator('#result table')).toBeVisible();
   await expect(page.locator('#result')).toContainText('Madrid');
 
-  // The run left a mark: the product's claim is that a scraper says how it is doing.
-  await page.click('.view-tab[data-view="runs"]');
+  // The run left a mark: the product's claim is that a scraper says how it is doing — and it says it
+  // where the question is asked, under its own card.
   await expect(page.locator('#runsStatus')).toContainText('scrapers');
-  await expect(page.locator('#runsList')).toContainText('fixture-jobs');
-  await expect(page.locator('#runsList')).toContainText('ok');
+  await card.locator('button[data-scraper-history]').click();
+  await expect(card.locator('.history')).toContainText('rows', { timeout: 30_000 });
 });
 
 test('a scraper card says how the scraper is doing, not just what it is', async ({ page }) => {
@@ -186,6 +186,6 @@ test('a scraper can be checked without running it, and says what it found', asyn
   await expect(card.locator('.state.ok')).toContainText('rows on the first page', { timeout: 60_000 });
 
   // …and a check is not a run: it leaves the history alone, or "three runs in a row" would mean nothing.
-  await page.click('.view-tab[data-view="runs"]');
-  await expect(page.locator('#runsList')).not.toContainText('checkable');
+  await card.locator('button[data-scraper-history]').click();
+  await expect(card.locator('.history')).toContainText('nothing yet', { timeout: 30_000 });
 });

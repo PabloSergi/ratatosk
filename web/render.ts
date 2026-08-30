@@ -179,7 +179,10 @@ export function scraperCard(
           // Columns from inside a row are marked, because they are not free: one page load each.
           scraper.deeper?.length ? ` \u00b7 ${scraper.deeper.map((field) => `${escapeHtml(field)} \u2193`).join(' \u00b7 ')}` : ''
         } \u2014 ${escapeHtml(scraper.pagination)}${scraper.proxy ? ` \u00b7 <span class="via">via proxy</span>` : ''}</div>
-        ${how}
+        <button class="opener" data-scraper-history="${escapeHtml(scraper.name)}"
+                aria-label="the story of ${escapeHtml(scraper.name)}"
+                title="every run this scraper has had: what came back and why it stopped there">${how}</button>
+        <div class="history" data-history-for="${escapeHtml(scraper.name)}" hidden></div>
       </div>
       <div class="row">
         ${checkIcon('data-scraper-check', scraper.name, 'check it now: one page, no model, nothing remembered')}
@@ -278,29 +281,30 @@ export function accountCard(account: {
 }
 
 
-/** A scraper's story, newest first: what each run returned and why it stopped there. */
-export function runsList(runs: Array<{ at: string; robot: string; kind: string; status: 'ok' | 'empty' | 'broken'; rows: number; pages?: number; ms: number; why?: string; door?: boolean }>): string {
-  if (!runs.length) return '<div class="meta muted">nothing has run yet</div>';
+/**
+ * One scraper's own story, under its card.
+ *
+ * A run list belonged in a tab of its own for about a week, until the obvious question — "and how has
+ * THIS one been doing?" — turned out to be the only one anybody asked of it. So it lives where the
+ * question is asked, and says nothing the card already says: no name in every line, no kind.
+ */
+export function scraperHistory(runs: Array<{ at: string; kind: string; status: 'ok' | 'empty' | 'broken'; rows: number; pages?: number; ms: number; why?: string }>): string {
+  if (!runs.length) return '<div class="meta muted">nothing yet — press Run, or the arrow for a quick look</div>';
 
-  const rows = runs
+  return `<table class="runs">${runs
     .map(
       (run) => `
         <tr>
           <td class="mono">${escapeHtml(new Date(run.at).toLocaleString())}</td>
-          <td><b>${escapeHtml(run.robot)}</b> <span class="kind">${escapeHtml(run.kind)}</span></td>
-          <td>${badge(run.status)}</td>
-          <td class="mono">${run.rows}${run.pages ? ` / ${run.pages}p` : ''}</td>
+          <td>${badge(run.status)}${run.kind === 'run' ? '' : ` <span class="kind">${escapeHtml(run.kind)}</span>`}</td>
+          <td class="mono">${run.rows} rows${run.pages ? ` · ${run.pages}p` : ''}</td>
           <td class="mono">${Math.round(run.ms / 100) / 10}s</td>
-          <td class="${run.status === 'ok' ? 'muted' : 'broken'}">${escapeHtml(run.why ?? '')}${run.door ? ' · a door meant for a person' : ''}</td>
+          <td class="meta">${run.why ? escapeHtml(run.why) : ''}</td>
         </tr>`,
     )
-    .join('');
-
-  return `<table><thead><tr><th>when</th><th>scraper</th><th></th><th>rows</th><th>took</th><th>why</th></tr></thead><tbody>${rows}</tbody></table>`;
+    .join('')}</table>`;
 }
 
-
-/** The machine credentials an account has handed out, and what each one was for. */
 export function keysList(keys: Array<{ id: string; label: string; hint: string; createdAt: string; lastUsedAt?: string }>): string {
   if (!keys.length) return '<div class="meta muted">no keys yet — a schedule cannot reach this account</div>';
 

@@ -57,7 +57,7 @@ test('every action puts its answer on the screen', () => {
     // The three ways this interface has of showing something: writing into a panel, re-reading a list,
     // or handing the result box a verdict.
     const shows =
-      /el\('[a-zA-Z]+'\)\.innerHTML/.test(entry) ||
+      /\binnerHTML\s*=/.test(entry) ||
       /\bload[A-Z]\w*\(/.test(entry) ||
       /\bresult\(/.test(entry) ||
       /\b(runScraper|repairScraper)\(/.test(entry);
