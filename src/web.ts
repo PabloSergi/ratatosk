@@ -20,7 +20,7 @@ import { createKey, keysFileFor, listKeys, looksLikeKey, revokeKey, whoseKey } f
 import { draftScenario } from './draft.js';
 import { openBrowser } from './drivers/patchright.js';
 import { repairScenario } from './repair.js';
-import { archivePrevious, deleteRobot, listRobots, loadRobot, saveRobot } from './robots.js';
+import { archivePrevious, createRobot, deleteRobot, listRobots, loadRobot, saveRobot } from './robots.js';
 import type { SiteRule } from './rules.js';
 import {
   addProxy,
@@ -347,7 +347,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
 
       // A robot built through a proxy must keep going through it: the address is part of how it works.
       if (result.scenario && result.verdict?.good) {
-        await saveRobot({ ...result.scenario, ...(proxy ? { proxy } : {}) }, robotsDirFor(user.id));
+        await createRobot({ ...result.scenario, ...(proxy ? { proxy } : {}) }, robotsDirFor(user.id));
       }
       return result;
     });
@@ -926,7 +926,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     }
 
     const saved: string[] = [];
-    for (const robot of robots) saved.push(await saveRobot(robot, robotsDirFor(user.id)));
+    for (const robot of robots) saved.push(await createRobot(robot, robotsDirFor(user.id)));
 
     return {
       saved,
@@ -951,7 +951,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     const proxy = body['proxy'] ? String(body['proxy']) : undefined;
     return pool.use(poolKey(user.id, proxy), async (session) => {
       const draft = await draftScenario(session.page, { url, name, rules });
-      if (draft.scenario) await saveRobot({ ...draft.scenario, ...(proxy ? { proxy } : {}) }, robotsDirFor(user.id));
+      if (draft.scenario) await createRobot({ ...draft.scenario, ...(proxy ? { proxy } : {}) }, robotsDirFor(user.id));
       return draft;
     });
   },

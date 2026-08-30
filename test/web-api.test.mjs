@@ -185,6 +185,22 @@ test('four channels become four scrapers, one each', async () => {
   for (const robot of made.body.robots) assert.ok(names.includes(robot.name), `${robot.name} was not saved`);
 });
 
+/**
+ * The accident this refusal exists for: a job board at ofmjobs.com and a Telegram group called
+ * @OFMJobs are different sources with the same word for a name. Writing one over the other destroys a
+ * scraper and everything it remembered having already handed over.
+ */
+test('a scraper is never created over one that already exists', async () => {
+  await call('/api/telegram/robot', { channels: '@taken', limit: 10 });
+  const again = await call('/api/telegram/robot', { channels: '@taken', limit: 10 });
+
+  assert.equal(again.status, 400);
+  assert.match(again.body.error, /already exists/);
+
+  const listed = await call('/api/robots', {});
+  assert.equal(listed.body.robots.filter((robot) => robot.name === 'taken').length, 1);
+});
+
 test('one channel with a name of its own keeps that name', async () => {
   const made = await call('/api/telegram/robot', { channels: '@onlyone', name: 'my-watch', limit: 10 });
   assert.deepEqual(made.body.robots.map((robot) => robot.name), ['my-watch']);

@@ -1,4 +1,4 @@
-import { copyFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { access, copyFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Scenario } from './scenario.js';
 import { parseScenario } from './scenario.js';
@@ -18,6 +18,27 @@ export function parseRobot(data: unknown): Robot {
  * No database, no opaque format, no "export" feature needed to get your own work back out.
  */
 export const ROBOTS_DIR = 'robots';
+
+/**
+ * Save a robot that is meant to be new.
+ *
+ * Names are chosen by people and by channels, and two different sources can easily want the same word:
+ * a job board at ofmjobs.com and a Telegram group called @OFMJobs are not the same thing and must not
+ * quietly become one. Writing over an existing scraper here would destroy minutes of a model's work and
+ * a memory of everything it had already handed over, so it is refused and the name is the caller's
+ * problem to solve.
+ */
+export async function createRobot(scenario: Robot, dir = ROBOTS_DIR): Promise<string> {
+  const path = join(dir, `${safeName(scenario.name)}.json`);
+  try {
+    await access(path);
+  } catch {
+    return saveRobot(scenario, dir);
+  }
+  throw new NameTaken(`a scraper called "${scenario.name}" already exists — give this one another name`);
+}
+
+export class NameTaken extends InputError {}
 
 export async function saveRobot(scenario: Robot, dir = ROBOTS_DIR): Promise<string> {
   await mkdir(dir, { recursive: true });
