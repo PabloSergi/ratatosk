@@ -254,3 +254,41 @@ test('what a run put on the screen can be taken away as a file', async ({ page }
   expect(text).toContain('Madrid');
   expect(text.split('\r\n')[0]).toContain('"title"');
 });
+
+/**
+ * The command line is what cron runs, and cron reads exit codes. A scrape that failed must not exit 0,
+ * or every schedule built on it reports success forever. This lives here rather than in the unit suite
+ * because it needs a real browser to fail in the real way.
+ */
+test('the command line exits non-zero when a scrape fails', async () => {
+  const { execFile } = await import('node:child_process');
+  const { mkdtemp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { promisify } = await import('node:util');
+
+  const dir = await mkdtemp(join(tmpdir(), 'ratatosk-cli-'));
+  const file = join(dir, 'nowhere.json');
+  await writeFile(
+    file,
+    JSON.stringify({
+      name: 'nowhere',
+      version: 1,
+      url: 'http://127.0.0.1:1/nothing-here',
+      wait: { selector: 'article', minCount: 1, timeoutMs: 2000 },
+      list: { rows: 'article', fields: { title: { type: 'text', selector: 'h1' } } },
+      pagination: { type: 'none' },
+    }),
+    'utf8',
+  );
+
+  const answer = await promisify(execFile)('node', ['dist/cli.js', file, '--json'], {
+    env: { ...process.env, RATATOSK_ROBOTS: dir },
+  }).then(
+    (done) => ({ code: 0, ...done }),
+    (error) => ({ code: error.code, stdout: error.stdout ?? '', stderr: error.stderr ?? '' }),
+  );
+
+  expect(answer.code).toBe(1);
+  expect(answer.stdout).toContain('"status": "broken"');
+});

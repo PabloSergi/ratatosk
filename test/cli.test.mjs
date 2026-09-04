@@ -12,6 +12,10 @@ const run = promisify(execFile);
  * The command line is the path cron takes, and cron is the documented way to put a scraper on a
  * schedule. It has to accept every kind of scraper the web view can make — a Telegram one used to be
  * refused with "url is required", which meant the documented way to schedule one did not exist.
+ *
+ * What a page scraper does needs a browser, so it is proved in the browser suite instead: this one
+ * runs in seconds on a machine that has no Chromium, and a test that quietly needs one would fail
+ * there for a reason that has nothing to do with the code.
  */
 async function cli(robot, extra = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'ratatosk-cli-'));
@@ -38,20 +42,6 @@ test('a telegram scraper is understood rather than refused for having no url', a
   // the complaint is about the session and not about a field a Telegram scraper never has.
   assert.doesNotMatch(`${answer.stdout}${answer.stderr}`, /url is required/);
   assert.match(`${answer.stdout}${answer.stderr}`, /telegram|session|sign in|connect/i);
-});
-
-test('a page scraper still runs, and a broken one exits non-zero', async () => {
-  const answer = await cli({
-    name: 'nowhere',
-    version: 1,
-    url: 'http://127.0.0.1:1/nothing-here',
-    wait: { selector: 'article', minCount: 1, timeoutMs: 2000 },
-    list: { rows: 'article', fields: { title: { type: 'text', selector: 'h1' } } },
-    pagination: { type: 'none' },
-  });
-
-  assert.equal(answer.code, 1, 'a scraper that could not read anything must not report success');
-  assert.match(answer.stdout, /"status": "broken"/);
 });
 
 test('a scraper file that is not a scraper is refused with a readable reason', async () => {
