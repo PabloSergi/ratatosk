@@ -40,6 +40,12 @@ export type Row = Record<string, string | null>;
 
 const DEFAULT_DAYS = 30;
 
+/** Column names that mean "the address of this thing", in the languages people build scrapers in. */
+const LINK_NAMES = ['link', 'url', 'href', 'ссылка', 'enlace', 'lien', 'länk', 'odkaz'];
+
+/** …and the ones that mean "when", which change on their own and so cannot identify anything. */
+const WHEN_NAMES = /date|time|seen|дата|время|fecha|hora|datum|zeit/i;
+
 /**
  * How much of a message its identity is taken from. Long enough that two different postings rarely
  * share it, short enough that a bump appended to the end changes nothing.
@@ -56,7 +62,7 @@ export function memoryFileFor(userId: string, robot: string): string {
  *
  * A link is the honest key when there is one: the same posting keeps its address. Without one, the
  * text is fingerprinted — but normalised first, because a reposted advertisement is never quite
- * identical: emoji get swapped, spacing changes, someone appends "UP" or "актуально" to bump it.
+ * identical: emoji get swapped, spacing changes, someone appends "UP" or "still open" to bump it.
  *
  * So the fingerprint is taken from the BEGINNING of the normalised text, not the whole of it. A bump
  * is appended, an edit is usually appended, and what somebody wrote first is what identifies their
@@ -70,11 +76,15 @@ export function identity(row: Row, by?: string): string | undefined {
     return value ? `k:${value.trim().toLowerCase()}` : undefined;
   }
 
-  const link = row['link'] ?? row['url'] ?? row['ссылка'];
+  // Column names are chosen by whoever built the scraper, in whatever language they think in. A link
+  // is the honest identity of a row whether the column is called "link" or "enlace"; anything not
+  // guessed here can be named outright with `by`.
+  const link = LINK_NAMES.map((name) => row[name]).find((value) => typeof value === 'string' && value !== '');
   if (typeof link === 'string' && /^https?:\/\//.test(link)) return `k:${link.trim().toLowerCase()}`;
 
   const text = Object.entries(row)
-    .filter(([name]) => !/date|time|seen|дата|время/i.test(name))
+    // Same reason: a timestamp is not part of what a posting IS, in any language.
+    .filter(([name]) => !WHEN_NAMES.test(name))
     .map(([, value]) => (typeof value === 'string' ? value : ''))
     .join(' ')
     .toLowerCase()
@@ -82,7 +92,7 @@ export function identity(row: Row, by?: string): string | undefined {
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
 
-  // A bump is a scrap on the end — "up", "ап", a repeated emoji already stripped above. One or two
+  // A bump is a scrap on the end — "up" in any language, a repeated emoji already stripped above. One or two
   // characters trailing the text carry no meaning and must not make a repost look like news.
   const body = text.replace(/(?:\s+\S{1,2})+$/u, '').trim() || text;
 

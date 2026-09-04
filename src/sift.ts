@@ -31,7 +31,8 @@ export interface Sift {
   /**
    * What to do with the rows the patterns did not claim.
    *
-   * Patterns are lexical: they separate "ищем" from "ищу" and nothing subtler. Real tasks are not
+   * Patterns are lexical: they separate "we are looking for" from "I am looking for" and nothing
+   * subtler. Real tasks are not
    * always lexical, and the wording people use drifts. So the leftovers — the rows no pattern kept —
    * can be put to a model, in one batched call per run, up to a limit. The cheap rule handles the bulk;
    * the expensive judgement handles the edge, and only the edge.

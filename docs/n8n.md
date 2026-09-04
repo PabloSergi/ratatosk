@@ -7,7 +7,7 @@ HTTP call, and this is what it looks like.
 ## A key, not your login
 
 Your own token expires in a month. An automation set up today should not stop working in a month, so a
-machine gets its own credential: **Runs → Keys for machines → Make a key**. It is shown once, named so
+machine gets its own credential: **Keys → Make a key**. It is shown once, named so
 you know a year later what it was for, and revoked on its own without disturbing the others.
 
 The key goes in one header:
@@ -32,7 +32,7 @@ The answer is the run itself:
 ```json
 {
   "status": "ok",
-  "rows": [{ "название": "…", "студия": "…", "город": "…", "зарплата": "50 000 — 500 000 ₽" }],
+  "rows": [{ "title": "…", "company": "…", "city": "…", "pay": "$2000-$3000/mo" }],
   "pagesVisited": 3,
   "reason": null
 }

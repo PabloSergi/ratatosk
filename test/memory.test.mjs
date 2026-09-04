@@ -13,7 +13,7 @@ import { identity, meet, readMemory, writeMemory } from '../src/memory.ts';
 const posting = (text, link) => ({ text, ...(link ? { link } : {}) });
 
 test('the same posting reposted is not new, however many times it comes', () => {
-  const message = posting('Ищем чаттера на вечернюю смену, оплата 60%');
+  const message = posting('Looking for a chat operator for evening shifts, 60% of takings');
   const first = meet([message], {}, {}, new Date('2026-08-27T10:00:00Z'));
 
   assert.equal(first.fresh.length, 1, 'the first time it is news');
@@ -30,9 +30,9 @@ test('the same posting reposted is not new, however many times it comes', () => 
 });
 
 test('a repost that was fiddled with is still the same posting', () => {
-  const before = meet([posting('🔥 Ищем чаттера, оплата 60% 🔥')], {}, {}, new Date('2026-08-27T10:00:00Z'));
+  const before = meet([posting('🔥 Looking for a chat operator, 60% of takings 🔥')], {}, {}, new Date('2026-08-27T10:00:00Z'));
   const after = meet(
-    [posting('Ищем    чаттера, оплата 60%!!! ⌨️⌨️  UP')],
+    [posting('Looking     for a chat operator, 60% of takings!!! ⌨️⌨️  UP')],
     before.memory,
     {},
     new Date('2026-08-27T12:00:00Z'),
@@ -45,19 +45,19 @@ test('and the limit of that, said plainly', () => {
   // Emoji, spacing and a two-letter bump are handled. A whole word appended to a short message is not:
   // it could as easily be an edit that matters. On a long posting it changes nothing, because the
   // identity is taken from the first two hundred characters.
-  const short = meet([posting('Ищем чаттера, оплата 60%')], {}, {});
-  const worded = meet([posting('Ищем чаттера, оплата 60% актуально')], short.memory, {});
+  const short = meet([posting('Looking for a chat operator, 60%')], {}, {});
+  const worded = meet([posting('Looking for a chat operator, 60% still open')], short.memory, {});
   assert.equal(worded.fresh.length, 1, 'a short message plus a word is treated as a new one');
 
-  const long = 'Ищем чаттера на вечернюю смену. '.repeat(9);
+  const long = 'Looking for a chat operator for the evening shift. '.repeat(9);
   const first = meet([posting(long)], {}, {});
-  const bumped = meet([posting(`${long} актуально, пишите в личные сообщения`)], first.memory, {});
+  const bumped = meet([posting(`${long} still open, write in a direct message`)], first.memory, {});
   assert.equal(bumped.fresh.length, 0, 'on a real posting the tail changes nothing');
 });
 
 test('a different posting is a different posting', () => {
-  const first = meet([posting('Ищем чаттера на вечернюю смену')], {}, {});
-  const second = meet([posting('Ищем оператора в Москву, з/п 80 000')], first.memory, {});
+  const first = meet([posting('Looking for a chat operator for evening shifts')], {}, {});
+  const second = meet([posting('Looking for an operator in Madrid, from 80 000 a year')], first.memory, {});
   assert.equal(second.fresh.length, 1);
 });
 
@@ -94,20 +94,20 @@ test('a memory survives being written down and read back', async () => {
   const file = join(await mkdtemp(join(tmpdir(), 'ratatosk-memory-')), 'robot.json');
   assert.deepEqual(await readMemory(file), {}, 'a robot that has never run remembers nothing');
 
-  const seen = meet([posting('Ищем чаттера на вечернюю смену, оплата 60%')], {}, {});
+  const seen = meet([posting('Looking for a chat operator for evening shifts, 60% of takings')], {}, {});
   await writeMemory(file, seen.memory);
 
   const back = await readMemory(file);
-  const again = meet([posting('Ищем чаттера на вечернюю смену, оплата 60%')], back, {});
+  const again = meet([posting('Looking for a chat operator for evening shifts, 60% of takings')], back, {});
   assert.equal(again.fresh.length, 0, 'yesterday is remembered today');
 });
 
 test('two postings that merely open alike are still two postings', () => {
   // The cost of taking the identity from the beginning, stated out loud: a source whose postings share
   // a long opening template needs a column of its own as the identity.
-  const head = 'Агентство ищет людей на постоянную работу, полная занятость, обучение за наш счёт. ';
-  const first = meet([{ text: `${head} Вакансия: чаттер, Москва, 80 000` }], {}, {});
-  const second = meet([{ text: `${head} Вакансия: оператор, Казань, 60 000` }], first.memory, {});
+  const head = 'An agency is hiring for permanent positions, full time, training at our expense. ';
+  const first = meet([{ text: `${head} Position: chat operator, Madrid, 80 000` }], {}, {});
+  const second = meet([{ text: `${head} Position: operator, Valencia, 60 000` }], first.memory, {});
 
   assert.equal(second.fresh.length, 1, 'the part that differs is inside the first two hundred characters');
 });

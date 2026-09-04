@@ -57,7 +57,8 @@ proxy **with authentication in front of it**.
    a password.
 4. **Build a scraper**: paste a URL, say what you want in your own words, press Build. What comes back is
    a scenario proven on a real page, not a promise.
-5. **Run it.** The Runs tab keeps every run, and each scraper's card says how it has been doing lately.
+5. **Run it.** Each scraper's card says how it has been doing; pressing its state line unfolds every
+   run it has had, and the round arrow checks it without running it at all.
 
 ## Logs
 

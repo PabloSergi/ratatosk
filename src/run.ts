@@ -353,7 +353,7 @@ function firstLine(error: unknown): string {
 
 /**
  * The cursor is whatever the last row carries — usually the id at the end of its own link. The column
- * it lives in is named by whoever built the robot, and they may well have named it "ссылка", so a rule
+ * it lives in is named by whoever built the scraper, in their own language, so a rule
  * written for a whole site cannot depend on that name: "*" means "find it".
  */
 export function cursorFrom(

@@ -143,7 +143,7 @@ test('a page that turns out to be an anti-bot check is named as one', async () =
   for (const wall of ['Just a moment…', 'Confirm that you are human', 'If you are human, click', 'Antibot Cloud', 'Я не робот']) {
     assert.ok(CHALLENGE_WORDS.test(wall), `${wall} is a wall`);
   }
-  for (const fine of ['Вакансии в вебкам', 'Jobs in Amsterdam', 'Human Resources']) {
+  for (const fine of ['Ofertas de trabajo', 'Jobs in Amsterdam', 'Human Resources']) {
     assert.ok(!CHALLENGE_WORDS.test(fine), `${fine} is not a wall`);
   }
 });

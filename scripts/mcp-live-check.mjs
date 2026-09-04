@@ -19,14 +19,14 @@ const call = async (name, args = {}) => {
 };
 
 const { tools } = await client.listTools();
-console.log('инструменты:', tools.map((t) => t.name).join(', '));
+console.log('tools:', tools.map((t) => t.name).join(', '));
 
 const opened = await call('open', { url: URL_UNDER_TEST });
 console.log('open:', opened.title);
 
 const sketch = await call('look');
 const candidate = sketch.candidates[0];
-console.log('look:', candidate.selector, '×' + candidate.count, '| поля:', candidate.fields.map((f) => f.role).join(','));
+console.log('look:', candidate.selector, '×' + candidate.count, '| fields:', candidate.fields.map((f) => f.role).join(','));
 
 const fields = {
   title: { type: 'attr', selector: 'h3 a', attr: 'title' },
@@ -34,7 +34,7 @@ const fields = {
   price: { type: 'text', selector: 'p.price_color' },
 };
 const attempt = await call('try', { rows: candidate.selector, fields });
-console.log('try:', attempt.rows, 'строк из', attempt.blocksSeen, 'блоков | предупреждений:', attempt.warnings.length);
+console.log('try:', attempt.rows, 'rows out of', attempt.blocksSeen, 'blocks | warnings:', attempt.warnings.length);
 
 const probe = await call('paginate_probe', { rows: candidate.selector, maxPages: 3 });
 console.log('probe:', probe.note);
@@ -43,15 +43,15 @@ const saved = await call('save', {
   name: 'books', url: URL_UNDER_TEST, rows: candidate.selector, fields,
   pagination: probe.worked ? probe.pagination : { type: 'none' }, minRowsPerPage: 10,
 });
-console.log('save:', saved.saved, '| проверено строк:', saved.provenRows);
+console.log('save:', saved.saved, '| rows proven:', saved.provenRows);
 
 console.log('robots:', JSON.stringify(await call('robots')));
 
 const data = await call('fetch', { name: 'books', maxPages: 2 });
-console.log('fetch:', data.count, 'строк с', data.pages, 'страниц | первая:', JSON.stringify(data.rows[0]));
+console.log('fetch:', data.count, 'rows from', data.pages, 'page(s) | first:', JSON.stringify(data.rows[0]));
 
-// И отказ должен быть внятным, а не «An error occurred».
+// And a refusal has to say something, rather than "An error occurred".
 const broken = await client.callTool({ name: 'fetch', arguments: { name: 'no-such-robot' } });
-console.log('ошибка по делу:', broken.content[0].text.slice(0, 100));
+console.log('refusal reads:', broken.content[0].text.slice(0, 100));
 
 await client.close();

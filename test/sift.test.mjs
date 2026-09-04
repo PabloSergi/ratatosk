@@ -6,36 +6,39 @@ import { buildSift } from '../src/sift-agent.ts';
 
 /**
  * A channel is a stream of whatever people write, and the two directions of the same trade read almost
- * alike: "ищу работу" and "ищем сотрудника" differ by one letter and mean opposite things. This is the
- * part that has to tell them apart — and the part that must refuse a rule which only appears to.
+ * alike: "looking for work" and "looking for someone" are one word apart and mean opposite things. This
+ * is the part that has to tell them apart — and the part that must refuse a rule which only appears to.
  */
 const CHANNEL = [
-  { text: 'Ищем модель в студию, Москва, оплата 60% от кассы, писать @studio' },
-  { text: 'Требуется чаттер на OF, опыт от года, ставка 1500₽ смена + %' },
-  { text: 'Ищу работу чаттером, опыт 2 года, резюме в личку' },
-  { text: 'Продам аккаунт OF с базой подписчиков, 30 000 ₽, торг' },
+  { text: 'We are looking for a designer, Madrid, 60% of takings, write to @studio' },
+  { text: 'Chat operator needed, a year of experience, rate 1500 EUR a month + %' },
+  { text: 'Looking for work as a chat operator, two years of experience, CV on request' },
+  { text: 'Selling an account with a subscriber base, 30 000 EUR, open to offers' },
   { text: 'up' },
-  { text: 'В команду нужен оператор, удалённо, з/п от 80 000 руб' },
-  { text: 'Резюме: девушка 24 года, ищу подработку моделью' },
-  { text: 'Куплю трафик, дорого' },
+  { text: 'Our team needs an operator, remote, from 80 000 EUR a year' },
+  { text: 'CV: 24, looking for part-time work as a model' },
+  { text: 'Buying traffic, paying well' },
 ];
 
 test('a rule keeps what the task wants and drops what it does not', () => {
   const result = sift(CHANNEL, {
-    keep: ['ищем', 'требуется', 'нужен', 'в команду'],
-    drop: ['ищу работу', 'резюме', 'продам', 'куплю'],
-    fields: { pay: { pattern: '(\\d[\\d\\s]{2,}\\s*(?:₽|руб))' } },
+    keep: ['we are looking for', 'needed', 'team needs'],
+    drop: ['looking for work', '\\bcv\\b', 'selling', 'buying'],
+    fields: { pay: { pattern: '(\\d[\\d\\s]{2,}\\s*EUR)' } },
   });
 
   assert.equal(result.kept, 3, 'three postings, and only those');
   assert.equal(result.dropped, 5);
-  assert.ok(result.rows.every((row) => /ищем|требуется|нужен|в команду/i.test(row.text)));
-  assert.equal(result.rows[1].pay, '1500₽', 'and a field is read out of the sentence itself');
+  assert.ok(result.rows.every((row) => /looking for|needed|team needs/i.test(row.text)));
+  assert.equal(result.rows[1].pay, '1500 EUR', 'and a field is read out of the sentence itself');
   assert.equal(result.rows[0].pay, null, 'a posting without a number keeps an honest empty');
 });
 
 test('a drop wins over a keep', () => {
-  const result = sift([{ text: 'Ищем модель. Резюме присылайте в личку' }], { keep: ['ищем'], drop: ['резюме'] });
+  const result = sift([{ text: 'We are looking for a designer. Send a CV in a direct message' }], {
+    keep: ['looking for'],
+    drop: ['\\bcv\\b'],
+  });
   assert.equal(result.kept, 0, 'the refusal is the stronger word');
 });
 
@@ -44,7 +47,7 @@ test('a rule that keeps everything is refused, and so is one that keeps nothing'
   assert.equal(judgeSift(everything, CHANNEL.length).good, false);
   assert.match(judgeSift(everything, CHANNEL.length).note, /kept everything/);
 
-  const nothing = sift(CHANNEL, { keep: ['вакансия в антарктиде'] });
+  const nothing = sift(CHANNEL, { keep: ['vacancy in antarctica'] });
   assert.equal(judgeSift(nothing, CHANNEL.length).good, false);
   assert.match(judgeSift(nothing, CHANNEL.length).note, /kept nothing/);
 });
@@ -70,24 +73,24 @@ const saying = (...answers) => {
   return ask;
 };
 
-const build = (ask, want = 'вакансии: ищем людей на работу, не резюме и не продажи') =>
+const build = (ask, want = 'job postings: someone hiring, not CVs and not sales') =>
   buildSift({ sample: CHANNEL, want, apiKey: 'x', model: 'm', baseUrl: 'https://nowhere', ask });
 
 test('the model writes a rule and the platform proves it on the messages', async () => {
-  const ask = saying(JSON.stringify({ keep: ['ищем', 'требуется', 'нужен'], drop: ['ищу работу', 'резюме', 'продам'] }));
+  const ask = saying(JSON.stringify({ keep: ['we are looking for', 'needed', 'team needs'], drop: ['looking for work', '\\bcv\\b', 'selling'] }));
   const built = await build(ask);
 
   assert.ok(built.sift, 'a rule that separates them is kept');
   assert.equal(built.attempts[0].good, true);
   assert.equal(built.attempts[0].kept, 3);
   assert.equal(built.usage.calls, 2, 'one call to write the rule, one to check what it kept');
-  assert.match(ask.said[0], /Ищем модель/, 'the model was shown real messages, not a description of them');
+  assert.match(ask.said[0], /looking for a designer/, 'the model was shown real messages, not a description of them');
 });
 
 test('a rule that keeps everything is sent back with what it did', async () => {
   const ask = saying(
     JSON.stringify({ keep: ['.'] }),
-    JSON.stringify({ keep: ['ищем', 'требуется', 'нужен'], drop: ['ищу работу', 'резюме', 'продам'] }),
+    JSON.stringify({ keep: ['we are looking for', 'needed', 'team needs'], drop: ['looking for work', '\\bcv\\b', 'selling'] }),
   );
   const built = await build(ask);
 
@@ -95,11 +98,11 @@ test('a rule that keeps everything is sent back with what it did', async () => {
   assert.equal(built.attempts.length, 2);
   assert.equal(built.attempts[0].good, false);
   assert.match(ask.said[1], /kept everything/, 'and the model was told exactly what was wrong');
-  assert.match(ask.said[1], /Ищем модель|up/, 'with the messages it kept, so it can see for itself');
+  assert.match(ask.said[1], /looking for a designer|up/, 'with the messages it kept, so it can see for itself');
 });
 
 test('prose instead of JSON is pushed back, not accepted', async () => {
-  const ask = saying('Sure! Here is my thinking about the channel…', JSON.stringify({ keep: ['ищем', 'требуется', 'нужен'], drop: ['резюме', 'продам', 'ищу работу'] }));
+  const ask = saying('Sure! Here is my thinking about the channel…', JSON.stringify({ keep: ['we are looking for', 'needed', 'team needs'], drop: ['\\bcv\\b', 'selling', 'looking for work'] }));
   const built = await build(ask);
 
   assert.ok(built.sift);
@@ -116,18 +119,18 @@ test('a model that never finds a rule leaves none, and says so', async () => {
 });
 
 test('nothing to learn from is said plainly', async () => {
-  const built = await buildSift({ sample: [], want: 'вакансии', apiKey: 'x', model: 'm', baseUrl: 'https://nowhere', ask: saying('{}') });
+  const built = await buildSift({ sample: [], want: 'job postings', apiKey: 'x', model: 'm', baseUrl: 'https://nowhere', ask: saying('{}') });
   assert.match(built.reason, /no messages to learn from/);
 });
 
 // --- the second opinion, for what the patterns did not claim -------------------------------------
 
 test('rows no pattern claimed are kept apart from rows a pattern refused', () => {
-  const result = sift(CHANNEL, { keep: ['ищем', 'требуется'], drop: ['продам', 'куплю'] });
+  const result = sift(CHANNEL, { keep: ['we are looking for', 'needed'], drop: ['selling', 'buying'] });
 
   const unclaimedText = result.unclaimed.map((row) => row.text).join(' | ');
-  assert.ok(unclaimedText.includes('нужен оператор'), 'a posting worded differently is a question, not a refusal');
-  assert.ok(!unclaimedText.includes('Продам аккаунт'), 'what a rule refused outright is settled');
+  assert.ok(unclaimedText.includes('team needs an operator'), 'a posting worded differently is a question, not a refusal');
+  assert.ok(!unclaimedText.includes('Selling an account'), 'what a rule refused outright is settled');
 });
 
 test('a model looks at the leftovers once per run, not once per message', async () => {
@@ -138,21 +141,21 @@ test('a model looks at the leftovers once per run, not once per message', async 
     return '{"keep":[1]}';
   };
 
-  const leftovers = [{ text: 'В команду нужен оператор, удалённо' }, { text: 'кто пойдёт гулять' }];
-  const second = await judgeLeftovers(leftovers, 'вакансии', ask, 40);
+  const leftovers = [{ text: 'Our team needs an operator, remote' }, { text: 'anyone up for a walk' }];
+  const second = await judgeLeftovers(leftovers, 'job postings', ask, 40);
 
   assert.equal(asked.length, 1, 'one call for the whole batch');
   assert.equal(second.rows.length, 1);
-  assert.match(second.rows[0].text, /оператор/);
-  assert.match(asked[0], /1\. В команду нужен оператор/, 'the messages went in numbered');
+  assert.match(second.rows[0].text, /operator/);
+  assert.match(asked[0], /1\. Our team needs an operator/, 'the messages went in numbered');
   assert.match(asked[0], /\{"keep":\[1,3\]\}/, 'and the form of the answer was asked for exactly');
 });
 
 test('the second opinion is bounded, so a busy day cannot become an expensive one', async () => {
   const { judgeLeftovers } = await import('../src/sift.ts');
-  const many = Array.from({ length: 500 }, (_, index) => ({ text: `сообщение ${index}` }));
+  const many = Array.from({ length: 500 }, (_, index) => ({ text: `message ${index}` }));
   let shown = 0;
-  const second = await judgeLeftovers(many, 'вакансии', async (prompt) => {
+  const second = await judgeLeftovers(many, 'job postings', async (prompt) => {
     shown = (prompt.match(/^\d+\./gm) ?? []).length;
     return '{"keep":[]}';
   }, 40);
@@ -163,12 +166,12 @@ test('the second opinion is bounded, so a busy day cannot become an expensive on
 });
 
 test('the model can ask for a second opinion, and the platform sets its budget', async () => {
-  const ask = saying(JSON.stringify({ keep: ['ищем', 'требуется', 'нужен'], drop: ['резюме', 'продам', 'ищу работу'], judge: true }));
+  const ask = saying(JSON.stringify({ keep: ['we are looking for', 'needed', 'team needs'], drop: ['\\bcv\\b', 'selling', 'looking for work'], judge: true }));
   const built = await build(ask);
 
   assert.ok(built.sift.judge, 'the model asked for it');
   assert.equal(built.sift.judge.maxRows, 40, 'and the platform said how much of it it may have');
-  assert.match(built.sift.judge.want, /вакансии/, 'the task travels with the rule, because a run has no other memory of it');
+  assert.match(built.sift.judge.want, /job postings/, 'the task travels with the rule, because a run has no other memory of it');
 });
 
 // --- and the other half: is what it kept actually what was asked? --------------------------------
@@ -178,7 +181,7 @@ test('a rule that keeps the wrong direction is refused, however much it keeps', 
   // work" are the same string to a regex, and one of them is a CV.
   const answers = [
     JSON.stringify({ keep: ['looking for'], drop: [] }),
-    JSON.stringify({ keep: ['\\bwe are (looking|hiring)', 'требуется', 'ищем'], drop: ['ищу работу', 'резюме'] }),
+    JSON.stringify({ keep: ['\\bwe are (looking|hiring)', 'buscamos'], drop: ['busco trabajo', '\\bcv\\b'] }),
   ];
   let audits = 0;
   const ask = async (messages) => {
@@ -191,14 +194,16 @@ test('a rule that keeps the wrong direction is refused, however much it keeps', 
     return { content: answers.shift() ?? '{}' };
   };
 
+  // Deliberately not in English: people write in their own language, and a rule that only works when
+  // they write in ours is a rule that works nowhere. The direction of the trade is the same either way.
   const sample = [
-    { text: 'Ищем модель в студию, оплата 60%' },
-    { text: 'Ищу работу чаттером, looking for a job' },
-    { text: 'Резюме: девушка 24, looking for work' },
-    { text: 'Требуется оператор, з/п от 80 000' },
+    { text: 'Buscamos modelo para el estudio, 60% de la caja' },
+    { text: 'Busco trabajo de chat operator, looking for a job' },
+    { text: 'CV: 24 años, looking for work' },
+    { text: 'Se busca operador, sueldo desde 80 000' },
     { text: 'up' },
   ];
-  const built = await buildSift({ sample, want: 'вакансии, не резюме', apiKey: 'x', model: 'm', baseUrl: 'https://nowhere', ask });
+  const built = await buildSift({ sample, want: 'job postings, not CVs', apiKey: 'x', model: 'm', baseUrl: 'https://nowhere', ask });
 
   assert.equal(built.attempts[0].good, false, 'kept plenty, but kept the wrong things');
   assert.match(built.attempts[0].note, /were not what was asked/);
@@ -208,21 +213,21 @@ test('a rule that keeps the wrong direction is refused, however much it keeps', 
 
 test('the second opinion is switched on by measurement, not by the model saying so', async () => {
   const sample = [
-    { text: 'Ищем модель в студию' },
-    { text: 'Требуется оператор' },
-    { text: 'нужен чаттер, писать в лс' },
+    { text: 'We are looking for a designer' },
+    { text: 'Operator needed' },
+    { text: 'need a chat operator, write in a direct message' },
     { text: 'up' },
-    { text: 'кто пойдёт гулять' },
+    { text: 'anyone up for a walk' },
   ];
 
   // A rule that leaves a lot unclaimed gets a judge whether or not the model asked for one.
   const built = await buildSift({
     sample,
-    want: 'вакансии',
+    want: 'job postings',
     apiKey: 'x',
     model: 'm',
     baseUrl: 'https://nowhere',
-    ask: saying(JSON.stringify({ keep: ['ищем', 'требуется'], drop: [] })),
+    ask: saying(JSON.stringify({ keep: ['we are looking for', 'needed'], drop: [] })),
   });
 
   assert.ok(built.sift.judge, 'two of five went unclaimed — that edge is what a model is for');
@@ -235,16 +240,16 @@ test('a model that explains itself is not misread as choosing', async () => {
 
   // The failure this exists for: reading every digit in the reply keeps message 1 because the model
   // mentioned message 1 while explaining that it does not fit.
-  const explaining = await judgeLeftovers(leftovers, 'вакансии', async () => 'Message 1 is a CV, so it does not fit the task.', 40);
+  const explaining = await judgeLeftovers(leftovers, 'job postings', async () => 'Message 1 is a CV, so it does not fit the task.', 40);
   assert.deepEqual(explaining.rows, [], 'an explanation is not a choice');
 
-  const proper = await judgeLeftovers(leftovers, 'вакансии', async () => '{"keep":[2]}', 40);
+  const proper = await judgeLeftovers(leftovers, 'job postings', async () => '{"keep":[2]}', 40);
   assert.equal(proper.rows.length, 1);
   assert.match(proper.rows[0].text, /hiring/);
 
-  const bare = await judgeLeftovers(leftovers, 'вакансии', async () => ' 2 ', 40);
+  const bare = await judgeLeftovers(leftovers, 'job postings', async () => ' 2 ', 40);
   assert.equal(bare.rows.length, 1, 'a bare list of numbers is still an answer');
 
-  const none = await judgeLeftovers(leftovers, 'вакансии', async () => '{"keep":[]}', 40);
+  const none = await judgeLeftovers(leftovers, 'job postings', async () => '{"keep":[]}', 40);
   assert.deepEqual(none.rows, []);
 });

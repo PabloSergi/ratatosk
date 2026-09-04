@@ -192,7 +192,9 @@ test('a cursor is taken from the last row', () => {
 
 test('the cursor does not depend on what the column was called', () => {
   // A rule is written once for a whole site; the robot may name its columns in any language.
-  const rows = [{ 'ссылка': 'https://t.me/ch/118', 'цена': '500' }];
+  // A column named in the builder's own language, because that is what people do — and the engine has
+  // no business caring which language a column name is in.
+  const rows = [{ 'enlace': 'https://t.me/ch/118', 'precio': '500' }];
   assert.equal(cursorFrom(rows, '*'), '118');
   assert.equal(cursorFrom(rows, 'link'), '118', 'a missing column name falls back to the link');
 });

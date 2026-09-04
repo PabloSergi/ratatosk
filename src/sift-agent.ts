@@ -71,9 +71,10 @@ Answer with JSON and nothing else:
 }
 
 What matters:
-- The same trade has two directions and they read almost alike. "Ищу работу" and "ищем сотрудника" are
-  opposite things; so are a CV and a posting, an offer to buy and an offer to sell. The task says which
-  direction is wanted; the patterns must tell them apart by how people actually write them.
+- The same trade has two directions and they read almost alike. "Looking for work" and "looking for
+  someone" are opposite things; so are a CV and a posting, an offer to buy and an offer to sell. The
+  task says which direction is wanted; the patterns must tell them apart by how people actually write
+  them — in whatever language they write in, which is rarely English.
 - Write for the language the messages are in, and for how people really write: abbreviations, typos,
   missing spaces after punctuation, emoji in the middle of a word.
 - Do not write one enormous pattern. Several plain ones are easier to read and to repair later.
