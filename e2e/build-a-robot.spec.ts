@@ -103,10 +103,18 @@ test('deleting a scraper asks first, and then it is gone', async ({ page }) => {
 
   await card.getByRole('button', { name: 'really?' }).click();
   await expect(page.locator('#result')).toContainText('deleted', { timeout: 30_000 });
-  await expect(page.locator('.item', { hasText: 'doomed' })).toHaveCount(0);
+  await expect(page.locator('#scrapers .item', { hasText: 'doomed' })).toHaveCount(0);
 
   await page.reload();
-  await expect(page.locator('.item', { hasText: 'doomed' })).toHaveCount(0);
+  await expect(page.locator('#scrapers .item', { hasText: 'doomed' })).toHaveCount(0);
+
+  // …and "I deleted the wrong one" is answerable without a shell on the server.
+  const deleted = page.locator('#deleted');
+  await expect(deleted).toContainText('doomed');
+  await deleted.getByRole('button', { name: 'Restore' }).first().click();
+
+  await expect(page.locator('#scrapers .item', { hasText: 'doomed' })).toBeVisible({ timeout: 30_000 });
+  await expect(deleted).not.toContainText('doomed');
 });
 
 test('a scraper built from a page can be given a rule, tried, and kept', async ({ page }) => {

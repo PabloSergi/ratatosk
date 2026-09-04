@@ -98,6 +98,51 @@ export async function renameRobot(from: string, to: string, dir = ROBOTS_DIR): P
   return renamed;
 }
 
+/**
+ * What has been deleted and can still be had back.
+ *
+ * Deleting moves the file aside rather than destroying it, which is worth nothing if the only way to
+ * reach the corner it was moved into is a shell on the server. A scraper is minutes of a model's work
+ * and a page that has since changed; "I deleted the wrong one" must be answerable.
+ */
+export async function deletedRobots(dir = ROBOTS_DIR): Promise<Array<{ file: string; name: string; kind: string; at: string }>> {
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch {
+    return [];
+  }
+
+  const deleted = [];
+  for (const file of names.filter((entry) => /\.deleted-[^.]+\.json$/.test(entry))) {
+    try {
+      const robot = parseRobot(JSON.parse(await readFile(join(dir, file), 'utf8')));
+      const stamp = /\.deleted-(.+)\.json$/.exec(file)?.[1] ?? '';
+      deleted.push({
+        file,
+        name: robot.name,
+        kind: isTelegramRobot(robot) ? 'telegram' : 'web',
+        // The timestamp went into the filename with its colons flattened; put them back.
+        at: stamp.replace(/^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/, '$1T$2:$3:$4.$5Z'),
+      });
+    } catch {
+      // Not a scraper any more, or never was. It cannot be restored, so it is not offered.
+    }
+  }
+  return deleted.sort((one, other) => other.at.localeCompare(one.at));
+}
+
+/** Lift one back out of that corner, under its own name unless something else has taken it since. */
+export async function restoreRobot(file: string, dir = ROBOTS_DIR): Promise<Robot> {
+  if (!/^[^/\\]+\.deleted-[^.]+\.json$/.test(file)) throw new InputError('that is not a deleted scraper');
+
+  const path = join(dir, file);
+  const robot = parseRobot(JSON.parse(await readFile(path, 'utf8')));
+  await createRobot(robot, dir);
+  await rm(path, { force: true });
+  return robot;
+}
+
 export async function loadRobot(name: string, dir = ROBOTS_DIR): Promise<Robot> {
   const path = join(dir, `${safeName(name)}.json`);
   try {

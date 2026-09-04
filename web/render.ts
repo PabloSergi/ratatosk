@@ -231,6 +231,29 @@ export function scraperCard(
 }
 
 /**
+ * What has been deleted lately, and the way back.
+ *
+ * Shown only when there is something to show: a permanent "nothing deleted" heading is furniture. A
+ * deletion is not undone by remembering to keep the file — it is undone by being able to reach it.
+ */
+export function deletedList(deleted: Array<{ file: string; name: string; kind: string; at: string }>): string {
+  if (!deleted.length) return '';
+
+  const rows = deleted
+    .map(
+      (one) =>
+        `<div class="item"><div class="item-main"><b>${escapeHtml(one.name)}</b> ` +
+        `<span class="kind">${escapeHtml(one.kind)}</span>` +
+        `<div class="meta">deleted ${escapeHtml(new Date(one.at).toLocaleString())}</div></div>` +
+        `<div class="row"><button data-restore="${escapeHtml(one.file)}">Restore</button></div></div>`,
+    )
+    .join('');
+
+  return `<h2 class="spaced">Deleted</h2><p class="meta">Brought back under its own name, without the
+    memory of what it had already handed over — after a fortnight away, what is there now is news.</p>${rows}`;
+}
+
+/**
  * A connection card answers the three questions people actually have: which key is this, what does it
  * build with, and is there anything left on it. The model is changed here rather than by making a
  * second connection — the key stays, the model is just a choice.

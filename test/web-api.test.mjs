@@ -195,6 +195,53 @@ test('four channels become four scrapers, one each', async () => {
  * is filed under it, and every line of history says it. A rename that moved only the file would hand
  * back a scraper with no past and no memory — a new scraper wearing an old name.
  */
+/**
+ * Deleting moves the file aside rather than destroying it — which is worth nothing if the only way to
+ * the corner it went into is a shell on the server. A scraper is minutes of a model's work against a
+ * page that has since changed, so "I deleted the wrong one" has to be answerable.
+ */
+test('a deleted scraper can be had back', async () => {
+  await call('/api/telegram/robot', { channels: '@regretted', limit: 10 });
+  await call('/api/robot/delete', { name: 'regretted' });
+
+  const gone = await call('/api/robots', {});
+  assert.ok(!gone.body.robots.some((robot) => robot.name === 'regretted'), 'deleted means gone from the list');
+
+  const deleted = await call('/api/robot/deleted', {});
+  const one = deleted.body.deleted.find((entry) => entry.name === 'regretted');
+  assert.ok(one, 'and yet still findable');
+  assert.equal(one.kind, 'telegram');
+  assert.ok(!Number.isNaN(Date.parse(one.at)), 'with a time a person can read');
+
+  const back = await call('/api/robot/restore', { file: one.file });
+  assert.equal(back.body.restored, 'regretted');
+
+  const now = await call('/api/robots', {});
+  assert.ok(now.body.robots.some((robot) => robot.name === 'regretted'), 'and it is a scraper again');
+
+  const after = await call('/api/robot/deleted', {});
+  assert.ok(!after.body.deleted.some((entry) => entry.name === 'regretted'), 'restored once, not offered twice');
+});
+
+test('restoring onto a name taken since is refused rather than silently overwriting', async () => {
+  await call('/api/telegram/robot', { channels: '@twice', limit: 10 });
+  await call('/api/robot/delete', { name: 'twice' });
+  await call('/api/telegram/robot', { channels: '@twice', limit: 10 }); // somebody built it again
+
+  const deleted = await call('/api/robot/deleted', {});
+  const one = deleted.body.deleted.find((entry) => entry.name === 'twice');
+  const clash = await call('/api/robot/restore', { file: one.file });
+
+  assert.equal(clash.status, 400);
+  assert.match(clash.body.error, /already exists/);
+});
+
+test('a restore cannot be pointed at a file that is not a deleted scraper', async () => {
+  const escaping = await call('/api/robot/restore', { file: '../../secrets/users.json' });
+  assert.equal(escaping.status, 400);
+  assert.match(escaping.body.error, /not a deleted scraper/);
+});
+
 test('renaming a scraper brings its history along', async () => {
   await call('/api/telegram/robot', { channels: '@before', limit: 10 });
 

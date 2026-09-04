@@ -21,6 +21,7 @@ import {
   kindTabs,
   proxyCard,
   scraperCard,
+  deletedList,
   stateLine,
   rowsTable,
   downloadBar,
@@ -230,6 +231,11 @@ async function loadScrapers(): Promise<void> {
     el('scrapers').innerHTML = shown.length
       ? shown.map((scraper) => scraperCard(scraper, how.get(scraper.name), probes.get(scraper.name))).join('')
       : '<span class="muted">nothing of that kind yet</span>';
+
+    // Deleting moves a scraper aside rather than destroying it, and that is worth nothing if the only
+    // way to the corner it went into is a shell on the server.
+    const { deleted } = await api.deletedScrapers().catch(() => ({ deleted: [] }));
+    el('deleted').innerHTML = deletedList(deleted);
   } catch (error) {
     fail('scrapers', error);
   }
@@ -822,6 +828,11 @@ document.addEventListener('click', async (event) => {
     ['data-run', 'scrapers', async (id) => runScraper(id, pressed)],
     ['data-download-csv', 'result', async (id) => handOver(carried.rows, id, 'csv')],
     ['data-download-json', 'result', async (id) => handOver(carried.rows, id, 'json')],
+    ['data-restore', 'scrapers', async (id) => {
+      const back = await api.restoreScraper(id);
+      result(back.restored, `${badge('ok')} back, under its own name`);
+      await loadScrapers();
+    }],
     ['data-scraper-rename', 'scrapers', async (id) => {
       // The name turns into a field in place. A dialog would ask the same question in a box that
       // covers the thing being renamed, and there is nothing to think about here — you type or you

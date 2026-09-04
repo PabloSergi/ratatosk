@@ -20,7 +20,17 @@ import { createKey, keysFileFor, listKeys, looksLikeKey, revokeKey, whoseKey } f
 import { draftScenario } from './draft.js';
 import { openBrowser } from './drivers/patchright.js';
 import { repairScenario } from './repair.js';
-import { archivePrevious, createRobot, deleteRobot, listRobots, loadRobot, renameRobot, saveRobot } from './robots.js';
+import {
+  archivePrevious,
+  createRobot,
+  deletedRobots,
+  deleteRobot,
+  listRobots,
+  loadRobot,
+  renameRobot,
+  restoreRobot,
+  saveRobot,
+} from './robots.js';
 import type { SiteRule } from './rules.js';
 import {
   addProxy,
@@ -725,6 +735,20 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
       note,
       at: new Date().toISOString(),
     };
+  },
+
+  /** What has been deleted and can still be had back. */
+  '/api/robot/deleted': async (_body, user) => ({ deleted: await deletedRobots(robotsDirFor(user.id)) }),
+
+  /**
+   * Lift a deleted scraper back out. Its memory of what it had handed over went with the deletion on
+   * purpose — a scraper brought back after a fortnight should say what is there now, not stay silent
+   * about everything it saw before it was deleted.
+   */
+  '/api/robot/restore': async (body, user) => {
+    const robot = await restoreRobot(String(body['file'] ?? ''), robotsDirFor(user.id));
+    log('info', 'scraper restored', { robot: robot.name, user: user.id });
+    return { restored: robot.name };
   },
 
   /**
