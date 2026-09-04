@@ -200,6 +200,36 @@ test('four channels become four scrapers, one each', async () => {
  * the corner it went into is a shell on the server. A scraper is minutes of a model's work against a
  * page that has since changed, so "I deleted the wrong one" has to be answerable.
  */
+test('alerts are off until a bot is set up, and the token never comes back', async () => {
+  const before = await call('/api/alerts', {});
+  assert.equal(before.body.on, false, 'nothing is said until somebody asks for it');
+
+  const half = await call('/api/alerts/save', { botToken: '123456:AA-token' });
+  assert.equal(half.status, 400);
+  assert.match(half.body.error, /chat id/);
+
+  const saved = await call('/api/alerts/save', { botToken: '123456:AA-token-material', chatId: '42', after: 2 });
+  assert.equal(saved.body.on, true);
+  assert.equal(saved.body.after, 2);
+  assert.ok(!JSON.stringify(saved.body).includes('AA-token-material'), 'a token is never handed back whole');
+
+  // Changing the chat id must not require pasting the token again, or people keep it in a text file.
+  const moved = await call('/api/alerts/save', { chatId: '77' });
+  assert.equal(moved.body.on, true);
+  assert.equal(moved.body.chatId, '77');
+
+  const off = await call('/api/alerts/off', {});
+  assert.equal(off.body.on, false);
+});
+
+test('how many bad runs count as broken is bounded, whatever is typed', async () => {
+  const silly = await call('/api/alerts/save', { botToken: 't', chatId: '1', after: 900 });
+  assert.ok(silly.body.after <= 20, 'a scraper nobody is ever told about is not a setting worth having');
+
+  const zero = await call('/api/alerts/save', { chatId: '1', after: 0 });
+  assert.ok(zero.body.after >= 1);
+});
+
 test('a deleted scraper can be had back', async () => {
   await call('/api/telegram/robot', { channels: '@regretted', limit: 10 });
   await call('/api/robot/delete', { name: 'regretted' });
@@ -431,6 +461,14 @@ test('every call leaves one line of JSON behind', async () => {
   assert.ok(
     !lines.some((line) => JSON.stringify(line).includes('a-long-enough-password')),
     'and nothing in a log line may carry a password',
+  );
+
+  // The same for every other credential that passes through: a bot token that reaches the logs is a
+  // bot anybody with log access can send messages as.
+  await call('/api/alerts/save', { botToken: '999999:AA-bot-token-that-must-not-leak', chatId: '42' });
+  assert.ok(
+    !spoken.some((line) => line.includes('AA-bot-token-that-must-not-leak')),
+    'nor a bot token',
   );
 });
 

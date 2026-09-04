@@ -52,6 +52,7 @@ import { findTakeover, startTakeover, stopAllTakeovers, stopTakeover, takeoversO
 import { liveLog, liveStream, nextFrame, viewerPage } from './live-view.js';
 import { InputError } from './errors.js';
 import { failure, info, log, warn } from './log.js';
+import { alertsFileFor, DEFAULT_AFTER, readAlerts, tell, viewAlerts, whatToSay, writeAlerts } from './alerts.js';
 import { historyFileFor, recent, remember, renameInHistory, standing } from './history.js';
 import {
   activeConnection,
@@ -204,6 +205,11 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
       ...(run.challenge ? { door: true } : {}),
       ...(isTelegramRobot(robot) ? {} : { proxy: robot.proxy ?? 'direct' }),
     });
+
+    // A scraper that says when it breaks says it to whoever opens the screen; one on a schedule breaks
+    // at four in the morning and is found on Friday. So a run is also where the owner gets told —
+    // once per breakage and once per recovery, and never for a single bad run.
+    await maybeTell(user.id, robot.name);
 
     // The line an operator wants at four in the morning: which robot, what it returned, why not more.
     log(run.status === 'ok' ? 'info' : 'warn', 'robot ran', {
@@ -735,6 +741,44 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
       note,
       at: new Date().toISOString(),
     };
+  },
+
+  /** Being told when something breaks: what is set up, without the token itself. */
+  '/api/alerts': async (_body, user) => viewAlerts(await readAlerts(alertsFileFor(user.id))),
+
+  '/api/alerts/save': async (body, user) => {
+    const file = alertsFileFor(user.id);
+    const before = await readAlerts(file);
+
+    // An empty token means "leave the one you have": a form that clears the credential every time it
+    // is used to change the chat id is a form that punishes editing.
+    const botToken = String(body['botToken'] ?? '').trim() || before.botToken;
+    const chatId = String(body['chatId'] ?? '').trim() || before.chatId;
+    const after = Math.max(1, Math.min(20, Number(body['after'] ?? before.after ?? DEFAULT_AFTER) || DEFAULT_AFTER));
+
+    if (!botToken) throw new InputError('a bot token is needed — make a bot with @BotFather and paste its token');
+    if (!chatId) throw new InputError('a chat id is needed — @userinfobot tells you yours');
+
+    const alerts = { ...before, botToken, chatId, after };
+    await writeAlerts(file, alerts);
+    log('info', 'alerts set up', { user: user.id, after });
+    return viewAlerts(alerts);
+  },
+
+  '/api/alerts/off': async (_body, user) => {
+    const file = alertsFileFor(user.id);
+    const before = await readAlerts(file);
+    // The streak memory goes too: turning it back on later should not stay silent about a scraper
+    // that broke while nobody was being told.
+    await writeAlerts(file, { after: before.after ?? DEFAULT_AFTER });
+    return viewAlerts({});
+  },
+
+  /** Say something now, so "it is set up" and "it works" are not the same claim. */
+  '/api/alerts/test': async (_body, user) => {
+    const alerts = await readAlerts(alertsFileFor(user.id));
+    await tell(alerts, 'Ratatosk is set up to tell you here when a scraper stops working.');
+    return { sent: true };
   },
 
   /** What has been deleted and can still be had back. */
@@ -1304,6 +1348,41 @@ server.on('upgrade', (request, socket, head) => {
   upstream.on('error', () => socket.destroy());
   socket.on('error', () => upstream.destroy());
 });
+
+/**
+ * Tell the owner, if there is anything to tell.
+ *
+ * Everything that could go wrong here is somebody else's service being unreachable, and a scrape that
+ * worked must not be reported as failed because a bot did not answer. So a failure to tell is logged
+ * and swallowed.
+ */
+async function maybeTell(userId: string, robot: string): Promise<void> {
+  const file = alertsFileFor(userId);
+  const alerts = await readAlerts(file);
+  if (!alerts.botToken || !alerts.chatId) return;
+
+  const now = (await standing(historyFileFor(userId))).find((entry) => entry.robot === robot);
+  if (!now) return;
+
+  const telling = whatToSay(now, alerts);
+  if (!telling) return;
+
+  try {
+    await tell(alerts, telling.say);
+    await writeAlerts(file, {
+      ...alerts,
+      told: { ...alerts.told, [robot]: { status: now.status, inARow: now.inARow, at: now.at } },
+    });
+    log('info', 'owner told', { robot, user: userId, about: telling.kind });
+  } catch (error) {
+    // Somebody else's service being unreachable must not turn a scrape that worked into a failure.
+    log('warn', 'could not tell the owner', {
+      robot,
+      user: userId,
+      why: error instanceof Error ? error.message.slice(0, 200) : String(error),
+    });
+  }
+}
 
 const PUBLIC_DIR = resolve(process.env['RATATOSK_PUBLIC'] ?? 'public');
 const CONTENT_TYPES: Record<string, string> = {

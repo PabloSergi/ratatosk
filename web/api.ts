@@ -26,6 +26,14 @@ import type { RobotSummary } from '../src/robots.js';
 
 export type { RobotSummary, ProxyView };
 
+/** What an account may see about its own alerts: everything except the token. */
+export interface AlertState {
+  on: boolean;
+  chatId?: string;
+  after: number;
+  tokenHint?: string;
+}
+
 import type { ConnectionView, ModelList, ProviderId } from '../src/settings.js';
 
 export type { ConnectionView, ModelList, ProviderId };
@@ -167,6 +175,12 @@ export const api = {
   forgetSite: (url: string, proxy?: string) =>
     post<{ host: string; forgotten: number }>('/api/browser/forget-site', { url, proxy }),
   setRobotProxy: (name: string, proxy?: string) => post<{ name: string; proxy: string | null }>('/api/robot/proxy', { name, proxy }),
+
+  alerts: () => post<AlertState>('/api/alerts'),
+  saveAlerts: (botToken: string, chatId: string, after: number) =>
+    post<AlertState>('/api/alerts/save', { botToken, chatId, after }),
+  testAlerts: () => post<{ sent: boolean }>('/api/alerts/test'),
+  alertsOff: () => post<AlertState>('/api/alerts/off'),
 
   telegramAccounts: () => post<{ accounts: TelegramAccount[] }>('/api/telegram'),
   telegramCheck: (id: string) => post<TelegramState>('/api/telegram/check', { id }),

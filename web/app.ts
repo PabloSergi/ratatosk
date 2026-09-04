@@ -738,6 +738,59 @@ function telegramStep(step: 1 | 2 | 3): void {
   }
 }
 
+/**
+ * How the owner is told when something breaks. Its own little block, because it is the one thing here
+ * that speaks outward rather than reads inward.
+ */
+async function loadAlerts(): Promise<void> {
+  try {
+    const state = await api.alerts();
+    el('alertState').innerHTML = state.on
+      ? `${badge('ok')} on — writing to ${escapeHtml(state.chatId ?? '')} after ${state.after} bad runs in a row` +
+        `<span class="muted"> · token ${escapeHtml(state.tokenHint ?? '')}</span>`
+      : '<span class="muted">off — nothing will be said until a bot is set up here</span>';
+    el<HTMLInputElement>('alertAfter').value = String(state.after);
+    if (state.chatId) el<HTMLInputElement>('alertChat').value = state.chatId;
+  } catch (error) {
+    fail('alertState', error);
+  }
+}
+
+el('alertSave').addEventListener('click', async () => {
+  const done = busy(el<HTMLButtonElement>('alertSave'), 'saving');
+  try {
+    await api.saveAlerts(
+      el<HTMLInputElement>('alertToken').value,
+      value('alertChat'),
+      Number(value('alertAfter')) || 3,
+    );
+    // The token is not kept in the page: it went to the server and the page has no further use for it.
+    el<HTMLInputElement>('alertToken').value = '';
+    await loadAlerts();
+  } catch (error) {
+    fail('alertState', error);
+  } finally {
+    done();
+  }
+});
+
+el('alertTest').addEventListener('click', async () => {
+  const done = busy(el<HTMLButtonElement>('alertTest'), 'sending');
+  try {
+    await api.testAlerts();
+    el('alertState').innerHTML = `${badge('ok')} sent — look in that chat`;
+  } catch (error) {
+    fail('alertState', error);
+  } finally {
+    done();
+  }
+});
+
+el('alertOff').addEventListener('click', async () => {
+  await api.alertsOff().catch(() => undefined);
+  await loadAlerts();
+});
+
 async function loadTelegram(): Promise<void> {
   try {
     const { accounts } = await api.telegramAccounts();
@@ -1075,7 +1128,15 @@ window.addEventListener('unhandledrejection', (event) => {
 });
 
 async function loadEverything(): Promise<void> {
-  await Promise.all([loadScrapers(), loadRuns(), loadKeys(), loadConnections(), loadProxies(), loadTelegram()]);
+  await Promise.all([
+    loadScrapers(),
+    loadRuns(),
+    loadKeys(),
+    loadConnections(),
+    loadProxies(),
+    loadTelegram(),
+    loadAlerts(),
+  ]);
   void freshen();
 }
 

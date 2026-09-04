@@ -53,3 +53,31 @@ the same shape as any other scraper, so `fetch` and the run view treat them iden
 
 Repair does not apply: there are no selectors to rot. If a scraper returns nothing, either the account
 lost access to the group or the filter is too tight, and the run says which.
+
+## Being told when something breaks
+
+A scraper that says when it breaks says it to whoever opens the screen. One on a schedule breaks at four
+in the morning on a Tuesday and is found on Friday, by which point whatever reads its rows has been
+quietly wrong for three days.
+
+So a run can tell somebody, through a bot of your own — **Telegram → Being told when something breaks**:
+
+1. `/newbot` to [@BotFather](https://t.me/BotFather); paste the token it gives you.
+2. Write anything to your new bot once. A bot cannot start a conversation.
+3. Paste your chat id, which [@userinfobot](https://t.me/userinfobot) will tell you.
+
+Three decisions are built in, and all three are about not becoming noise:
+
+- **One bad run is not a breakage.** A site hiccups, a proxy blinks, a page takes too long. Only a streak
+  counts, and how long it has to be is yours to set — three runs by default.
+- **One message per breakage, not per run.** A scraper running every half hour must not send forty eight
+  messages about the same dead selector.
+- **Recovery is worth exactly one message too**, or the only way to learn that something is fine again is
+  to go and look.
+
+The token is stored for your account alone, with owner-only permissions, and never leaves the server —
+the screen shows its last four characters and nothing else. A test message is one press, because "it is
+set up" and "it works" are different claims.
+
+Nothing is sent by the platform on a timer: the telling happens when a run happens. A scraper nothing
+runs will never report itself broken, because nothing has asked it to work.

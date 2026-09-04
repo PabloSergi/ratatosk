@@ -229,6 +229,33 @@
         <p class="meta">Scrapers are made in <b>Scrapers</b> → <i>telegram</i>, where you choose which account reads which channels.</p>
       </li>
     </ol>
+    <h2 class="spaced">Being told when something breaks</h2>
+    <p class="meta">
+      A scraper that says when it breaks says it to whoever opens this screen. One on a schedule breaks
+      at four in the morning and is found on Friday, by which point whatever reads its rows has been
+      quietly wrong for three days. A bot of your own can say it instead — one message when it breaks,
+      one when it works again, and nothing in between.
+    </p>
+    <ol class="guide">
+      <li>Write to <a href="https://t.me/BotFather" target="_blank" rel="noreferrer">@BotFather</a>, send
+        <code>/newbot</code>, and paste the token it gives you.</li>
+      <li>Write anything to your new bot once — a bot cannot start a conversation.</li>
+      <li>Ask <a href="https://t.me/userinfobot" target="_blank" rel="noreferrer">@userinfobot</a> for your
+        chat id and paste that too.</li>
+    </ol>
+    <div class="row">
+      <input type="password" id="alertToken" placeholder="bot token — 123456:AA…" autocomplete="off">
+      <input type="text" id="alertChat" placeholder="chat id — 123456789" class="narrow">
+      <input type="text" id="alertAfter" placeholder="after" value="3" class="tiny"
+             title="how many runs in a row have to go wrong before it counts as broken">
+    </div>
+    <div class="row spaced">
+      <button class="primary" id="alertSave">Save</button>
+      <button id="alertTest">Send a test message</button>
+      <button id="alertOff">Turn off</button>
+      <span class="meta" id="alertState"></span>
+    </div>
+
     <h2 class="spaced">Connected</h2>
     <div id="tgStatus" class="meta">checking…</div>
     <div id="tgList"></div>
