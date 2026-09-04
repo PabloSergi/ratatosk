@@ -37,19 +37,22 @@ A file. Here is the whole of one:
 ```json
 {
   "name": "books",
+  "version": 1,
   "url": "https://books.toscrape.com/catalogue/page-1.html",
-  "wait": { "selector": "article.product_pod", "minCount": 5 },
+  "wait": { "selector": "article.product_pod", "minCount": 5, "timeoutMs": 15000 },
   "list": {
     "rows": "article.product_pod",
     "fields": {
-      "title": { "selector": "h3 a", "attribute": "title" },
-      "price": { "selector": "p.price_color" },
-      "link":  { "selector": "h3 a", "attribute": "href", "absolute": true }
+      "title": { "type": "attr",  "selector": "h3 a", "attr": "title" },
+      "price": { "type": "text",  "selector": ".price_color" },
+      "link":  { "type": "attr",  "selector": "h3 a", "attr": "href" }
     }
   },
   "pagination": { "type": "link", "selector": "li.next a", "maxPages": 3 }
 }
 ```
+
+That is `examples/books.json`, copied out of the file the tests run.
 
 Readable, editable by hand, diffable in review. Nothing about it is a black box, and a scraper you did not
 like is a file you can change.
