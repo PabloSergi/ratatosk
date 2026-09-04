@@ -23,6 +23,8 @@ import {
   scraperCard,
   stateLine,
   rowsTable,
+  downloadBar,
+  toCsv,
   scraperHistory,
   keysList,
   ruleEditor,
@@ -170,6 +172,42 @@ let shownKind = 'all';
 /** The scrapers as last listed. A card's buttons act on one of these, so they have to be to hand. */
 let known: RobotSummary[] = [];
 
+/** The rows on the screen right now, so they can be handed over as a file without asking the site again. */
+let carried: { name: string; rows: Array<Record<string, string | null>> } = { name: '', rows: [] };
+
+/**
+ * Hand the rows over as a file.
+ *
+ * Nothing is uploaded and nothing is asked of the server: the rows are already in the page, so the file
+ * is built here and offered as a download. The name carries the scraper and the day, because a folder
+ * of files called "export.csv" is a folder of files nobody can tell apart.
+ */
+async function handOver(rows: Array<Record<string, string | null>>, name: string, as: 'csv' | 'json'): Promise<void> {
+  if (!rows.length) {
+    el('handedOver').innerHTML = '<span class="muted">there is nothing on the screen to hand over</span>';
+    return;
+  }
+
+  const text = as === 'csv' ? toCsv(rows) : JSON.stringify(rows, null, 2);
+  // A byte-order mark, because Excel reads a UTF-8 file as the local codepage without one and turns
+  // every non-English column into rubbish.
+  const blob = new Blob([as === 'csv' ? `\ufeff${text}` : text], {
+    type: as === 'csv' ? 'text/csv;charset=utf-8' : 'application/json',
+  });
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  const file = `${name}-${new Date().toISOString().slice(0, 10)}.${as}`;
+  link.download = file;
+  link.click();
+  URL.revokeObjectURL(url);
+
+  // A download that starts silently looks like a button that did nothing, and the file lands somewhere
+  // the page cannot see. Say what was handed over and under what name.
+  el('handedOver').innerHTML = `<span class="muted">handed over as <b>${escapeHtml(file)}</b> — ${rows.length} row(s)</span>`;
+}
+
 /** What a probe said about a scraper just now — newer than any run, and gone when the page is left. */
 const probes = new Map<string, { at: string; ok: boolean; note: string }>();
 
@@ -205,6 +243,9 @@ async function runScraper(name: string, button: HTMLButtonElement): Promise<void
   try {
     const run = await api.run(name, 2);
     void loadRuns();
+    // Kept so the two buttons below have something to hand over: the rows are already here, and asking
+    // the site for them a second time to make a file would be both slower and a different answer.
+    carried = { name, rows: run.rows };
     result(
       name,
       `${badge(run.status)} <b>${run.rows.length} rows</b> from ${run.pagesVisited} page(s)` +
@@ -213,6 +254,7 @@ async function runScraper(name: string, button: HTMLButtonElement): Promise<void
         (run.rulesApplied?.length
           ? `<div class="meta spaced">${run.rulesApplied.map(escapeHtml).join('<br>')}</div>`
           : '') +
+        downloadBar(name, run.rows.length) +
         rowsTable(run.rows),
     );
   } catch (error) {
@@ -778,6 +820,8 @@ document.addEventListener('click', async (event) => {
 
   const actions: Array<[string, string, (id: string) => Promise<void>]> = [
     ['data-run', 'scrapers', async (id) => runScraper(id, pressed)],
+    ['data-download-csv', 'result', async (id) => handOver(carried.rows, id, 'csv')],
+    ['data-download-json', 'result', async (id) => handOver(carried.rows, id, 'json')],
     ['data-scraper-rename', 'scrapers', async (id) => {
       // The name turns into a field in place. A dialog would ask the same question in a box that
       // covers the thing being renamed, and there is nothing to think about here — you type or you

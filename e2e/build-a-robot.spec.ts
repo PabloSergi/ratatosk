@@ -218,3 +218,31 @@ test('a scraper can be renamed by its own name, and keeps what it did', async ({
   await renamed.locator('button[data-scraper-history]').click();
   await expect(renamed.locator('.history')).toContainText('rows', { timeout: 30_000 });
 });
+
+test('what a run put on the screen can be taken away as a file', async ({ page }) => {
+  await page.goto('/');
+  await page.fill('#authEmail', `ninth-${Date.now()}@example.com`);
+  await page.fill('#authPassword', 'a-long-enough-password');
+  await page.click('#authRegister');
+
+  await page.fill('#url', SITE);
+  await page.fill('#name', 'takeaway');
+  await page.click('#draft');
+  await expect(page.locator('#resultTitle')).toContainText('takeaway', { timeout: 60_000 });
+
+  await page.locator('.item', { hasText: 'takeaway' }).getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.locator('#result')).toContainText('page(s)', { timeout: 60_000 });
+
+  const saving = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Download CSV' }).click();
+  const file = await saving;
+
+  expect(file.suggestedFilename()).toMatch(/^takeaway-\d{4}-\d{2}-\d{2}\.csv$/);
+  await expect(page.locator('#handedOver')).toContainText('row(s)');
+
+  // The file is the rows, not a picture of them.
+  const path = await file.path();
+  const text = await (await import('node:fs/promises')).readFile(path, 'utf8');
+  expect(text).toContain('Madrid');
+  expect(text.split('\r\n')[0]).toContain('"title"');
+});

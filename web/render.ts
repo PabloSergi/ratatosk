@@ -43,6 +43,37 @@ export function rowsTable(rows: Row[] | undefined, limit = 50): string {
   return `<table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>${more}`;
 }
 
+/**
+ * Rows as a CSV file.
+ *
+ * A run that ends on the screen is a run whose result cannot be used: two hundred rows in a table are
+ * something to look at, not something to work with. This is the way out for a person — the way out for
+ * a machine is the API, which hands back the same rows as JSON and needs no button.
+ *
+ * Everything is quoted, because a scraped value contains whatever the site had in it: commas, quotes,
+ * and newlines all arrive eventually, and a file that breaks on the first comma is worse than no file.
+ */
+export function toCsv(rows: Row[]): string {
+  if (!rows.length) return '';
+  const columns = [...new Set(rows.flatMap((row) => Object.keys(row)))];
+  const cell = (value: string | null | undefined): string => `"${String(value ?? '').replace(/"/g, '""')}"`;
+
+  const head = columns.map(cell).join(',');
+  const body = rows.map((row) => columns.map((column) => cell(row[column])).join(',')).join('\r\n');
+  return `${head}\r\n${body}\r\n`;
+}
+
+/** What a person does with a result once it is on the screen. */
+export function downloadBar(name: string, rows: number): string {
+  if (!rows) return '';
+  return (
+    `<div class="row spaced"><span class="meta">${rows} row(s)</span>` +
+    `<button data-download-csv="${escapeHtml(name)}">Download CSV</button>` +
+    `<button data-download-json="${escapeHtml(name)}">Download JSON</button>` +
+    `<span class="meta" id="handedOver"></span></div>`
+  );
+}
+
 export function stepsList(steps: AgentStep[]): string {
   const lines = steps
     .map((step) => `<div class="step"><b>${escapeHtml(step.tool)}</b><span>${escapeHtml(step.result)}</span></div>`)

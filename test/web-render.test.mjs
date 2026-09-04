@@ -7,6 +7,8 @@ import {
   escapeHtml,
   scraperCard,
   proxyCard,
+  toCsv,
+  downloadBar,
   rowsTable,
   stepsList,
   verdictBars,
@@ -241,4 +243,36 @@ test('a card that has never been checked says so rather than looking fine', () =
   });
   assert.match(broken, /class="state bad"/);
   assert.match(broken, /401/);
+});
+
+/**
+ * A run that ends on the screen is a run whose result cannot be used. What comes out has to survive
+ * the things a scraped value actually contains — commas, quotes, and newlines all arrive eventually.
+ */
+test('rows become a csv that survives what sites put in them', () => {
+  const csv = toCsv([
+    { title: 'Plain', pay: '$10' },
+    { title: 'Comma, inside', pay: 'quote " inside' },
+    { title: 'line\nbreak', pay: null },
+  ]);
+
+  const lines = csv.split('\r\n');
+  assert.equal(lines[0], '"title","pay"');
+  assert.equal(lines[1], '"Plain","$10"');
+  assert.equal(lines[2], '"Comma, inside","quote "" inside"', 'a quote is doubled, not dropped');
+  assert.ok(csv.includes('"line\nbreak"'), 'a newline stays inside its quoted cell');
+  assert.ok(csv.includes('""'), 'an empty value is empty rather than the word null');
+});
+
+test('a csv keeps every column, including one only some rows have', () => {
+  const csv = toCsv([{ a: '1' }, { a: '2', b: 'later' }]);
+  assert.equal(csv.split('\r\n')[0], '"a","b"');
+  assert.equal(csv.split('\r\n')[1], '"1",""', 'a row without that column is blank there, not shifted');
+});
+
+test('nothing to hand over offers nothing to press', () => {
+  assert.equal(toCsv([]), '');
+  assert.equal(downloadBar('scraper', 0), '', 'no rows, no buttons');
+  assert.match(downloadBar('scraper', 12), /data-download-csv="scraper"/);
+  assert.match(downloadBar('scraper', 12), /12 row/);
 });
