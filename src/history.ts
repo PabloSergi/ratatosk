@@ -33,6 +33,36 @@ export function historyFileFor(userId: string): string {
   return join(process.env['RATATOSK_HISTORY'] ?? 'history', `${userId}.jsonl`);
 }
 
+/**
+ * Carry a scraper's past over to its new name.
+ *
+ * History is a log of lines, each naming the scraper it belongs to, so a rename that ignores it leaves
+ * the story behind under a name nothing points at any more. The file is rewritten once, in place.
+ */
+export async function renameInHistory(file: string, from: string, to: string): Promise<number> {
+  let lines: string[];
+  try {
+    lines = (await readFile(file, 'utf8')).split('\n').filter(Boolean);
+  } catch {
+    return 0;
+  }
+
+  let moved = 0;
+  const next = lines.map((line) => {
+    const run = parse(line);
+    if (!run || run.robot !== from) return line;
+    moved++;
+    return JSON.stringify({ ...run, robot: to });
+  });
+
+  if (moved > 0) {
+    const temporary = `${file}.writing`;
+    await writeFile(temporary, `${next.join('\n')}\n`, 'utf8');
+    await rename(temporary, file);
+  }
+  return moved;
+}
+
 export async function remember(file: string, run: Run): Promise<void> {
   await mkdir(dirname(file), { recursive: true });
   await appendFile(file, `${JSON.stringify(run)}\n`, 'utf8');

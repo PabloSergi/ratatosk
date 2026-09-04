@@ -173,7 +173,10 @@ export function scraperCard(
   return `
     <div class="item">
       <div class="item-main">
-        <b>${escapeHtml(scraper.name)}</b>${scraper.kind ? ` <span class="kind">${escapeHtml(scraper.kind)}</span>` : ''}
+        <button class="rename" data-scraper-rename="${escapeHtml(scraper.name)}"
+                title="rename it — the memory of what it has handed over and its whole history come along">${escapeHtml(scraper.name)}</button>${
+          scraper.kind ? ` <span class="kind">${escapeHtml(scraper.kind)}</span>` : ''
+        }
         <div class="meta">${escapeHtml(scraper.url)}</div>
         <div class="meta">${scraper.fields.map(escapeHtml).join(' \u00b7 ')}${
           // Columns from inside a row are marked, because they are not free: one page load each.

@@ -189,3 +189,32 @@ test('a scraper can be checked without running it, and says what it found', asyn
   await card.locator('button[data-scraper-history]').click();
   await expect(card.locator('.history')).toContainText('nothing yet', { timeout: 30_000 });
 });
+
+test('a scraper can be renamed by its own name, and keeps what it did', async ({ page }) => {
+  await page.goto('/');
+  await page.fill('#authEmail', `eighth-${Date.now()}@example.com`);
+  await page.fill('#authPassword', 'a-long-enough-password');
+  await page.click('#authRegister');
+
+  await page.fill('#url', SITE);
+  await page.fill('#name', 'misnamed');
+  await page.click('#draft');
+  await expect(page.locator('#resultTitle')).toContainText('misnamed', { timeout: 60_000 });
+
+  const card = page.locator('.item', { hasText: 'misnamed' });
+  await card.getByRole('button', { name: 'Run' }).click();
+  await expect(page.locator('#result')).toContainText('page(s)', { timeout: 60_000 });
+
+  // The name is the control: press it, type, press Enter.
+  await card.locator('button[data-scraper-rename]').click();
+  await page.locator('input.renaming').fill('renamed-well');
+  await page.locator('input.renaming').press('Enter');
+
+  await expect(page.locator('.item', { hasText: 'renamed-well' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('.item', { hasText: 'misnamed' })).toHaveCount(0);
+
+  // And the run it had before the rename is still its own run.
+  const renamed = page.locator('.item', { hasText: 'renamed-well' });
+  await renamed.locator('button[data-scraper-history]').click();
+  await expect(renamed.locator('.history')).toContainText('rows', { timeout: 30_000 });
+});

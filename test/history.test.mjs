@@ -4,10 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
 
-import { recent, remember, standing } from '../src/history.ts';
+import { recent, remember, renameInHistory, standing } from '../src/history.ts';
 
 /**
- * The product's claim is that a robot says when it breaks, and a claim like that needs a memory:
+ * The product's claim is that a scraper says when it breaks, and a claim like that needs a memory:
  * one run returning eleven rows means nothing, eleven where yesterday there were four hundred means
  * the site changed under it.
  */
@@ -95,4 +95,24 @@ test('a build is not how a robot is doing', async () => {
   const file = await logbook();
   await remember(file, run({ kind: 'build', status: 'ok', rows: 12, at: '2026-08-27T11:00:00.000Z' }));
   assert.deepEqual(await standing(file), [], 'building it says nothing about whether it still works');
+});
+
+test('a renamed scraper keeps its past, under the new name', async () => {
+  const file = join(await mkdtemp(join(tmpdir(), 'ratatosk-history-')), 'runs.jsonl');
+  await remember(file, run({ robot: 'before', rows: 40 }));
+  await remember(file, run({ robot: 'somebody-else', rows: 7 }));
+  await remember(file, run({ robot: 'before', rows: 41 }));
+
+  const moved = await renameInHistory(file, 'before', 'after');
+  assert.equal(moved, 2, 'both of its runs, and only its own');
+
+  const now = await recent(file);
+  assert.equal(now.filter((entry) => entry.robot === 'after').length, 2);
+  assert.equal(now.filter((entry) => entry.robot === 'before').length, 0, 'nothing is left behind the old name');
+  assert.equal(now.filter((entry) => entry.robot === 'somebody-else').length, 1, "and nobody else's story moved");
+});
+
+test('renaming in a history that does not exist yet is not an error', async () => {
+  const file = join(await mkdtemp(join(tmpdir(), 'ratatosk-history-')), 'nothing.jsonl');
+  assert.equal(await renameInHistory(file, 'a', 'b'), 0, 'a scraper that never ran has nothing to carry');
 });

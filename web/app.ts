@@ -778,6 +778,43 @@ document.addEventListener('click', async (event) => {
 
   const actions: Array<[string, string, (id: string) => Promise<void>]> = [
     ['data-run', 'scrapers', async (id) => runScraper(id, pressed)],
+    ['data-scraper-rename', 'scrapers', async (id) => {
+      // The name turns into a field in place. A dialog would ask the same question in a box that
+      // covers the thing being renamed, and there is nothing to think about here — you type or you
+      // do not.
+      const field = document.createElement('input');
+      field.className = 'renaming';
+      field.value = id;
+      pressed.replaceWith(field);
+      field.focus();
+      field.select();
+
+      let settled = false;
+      const done = async (save: boolean): Promise<void> => {
+        if (settled) return;
+        settled = true;
+        const wanted = field.value.trim();
+        if (!save || !wanted || wanted === id) return void (await loadScrapers());
+
+        try {
+          const renamed = await api.renameScraper(id, wanted);
+          result(
+            renamed.name,
+            `${badge('ok')} renamed from <b>${escapeHtml(renamed.was)}</b>` +
+              (renamed.runs ? `<div class="meta spaced">${renamed.runs} run(s) of history came along</div>` : ''),
+          );
+        } catch (error) {
+          result('rename', `<span class="broken">${escapeHtml(error instanceof Error ? error.message : error)}</span>`);
+        }
+        await loadScrapers();
+      };
+
+      field.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') void done(true);
+        if (event.key === 'Escape') void done(false);
+      });
+      field.addEventListener('blur', () => void done(true));
+    }],
     ['data-scraper-history', 'scrapers', async (id) => {
       const panel = document.querySelector<HTMLElement>(`[data-history-for="${CSS.escape(id)}"]`);
       if (!panel) return;

@@ -20,7 +20,7 @@ import { createKey, keysFileFor, listKeys, looksLikeKey, revokeKey, whoseKey } f
 import { draftScenario } from './draft.js';
 import { openBrowser } from './drivers/patchright.js';
 import { repairScenario } from './repair.js';
-import { archivePrevious, createRobot, deleteRobot, listRobots, loadRobot, saveRobot } from './robots.js';
+import { archivePrevious, createRobot, deleteRobot, listRobots, loadRobot, renameRobot, saveRobot } from './robots.js';
 import type { SiteRule } from './rules.js';
 import {
   addProxy,
@@ -42,7 +42,7 @@ import { findTakeover, startTakeover, stopAllTakeovers, stopTakeover, takeoversO
 import { liveLog, liveStream, nextFrame, viewerPage } from './live-view.js';
 import { InputError } from './errors.js';
 import { failure, info, log, warn } from './log.js';
-import { historyFileFor, recent, remember, standing } from './history.js';
+import { historyFileFor, recent, remember, renameInHistory, standing } from './history.js';
 import {
   activeConnection,
   runConnection,
@@ -725,6 +725,28 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
       note,
       at: new Date().toISOString(),
     };
+  },
+
+  /**
+   * Rename a scraper, and everything its name is the key to: the file, the memory of what it has
+   * already handed over, and every line of its history. A rename that moved only the file would hand
+   * back a scraper with no past and no memory, which is a new scraper wearing an old name.
+   */
+  '/api/robot/rename': async (body, user) => {
+    const from = String(body['name'] ?? '');
+    const to = String(body['to'] ?? '');
+    const dir = robotsDirFor(user.id);
+
+    const renamed = await renameRobot(from, to, dir);
+
+    const wasMemory = memoryFileFor(user.id, from);
+    const nowMemory = memoryFileFor(user.id, renamed.name);
+    await rename(wasMemory, nowMemory).catch(() => undefined); // a scraper that never remembered has no file
+
+    const runs = await renameInHistory(historyFileFor(user.id), from, renamed.name);
+
+    log('info', 'scraper renamed', { from, to: renamed.name, user: user.id, runs });
+    return { name: renamed.name, was: from, runs };
   },
 
   /** Attach or detach a proxy on a robot that already exists. */

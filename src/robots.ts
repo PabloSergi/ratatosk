@@ -1,4 +1,4 @@
-import { access, copyFile, mkdir, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { access, copyFile, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Scenario } from './scenario.js';
 import { parseScenario } from './scenario.js';
@@ -74,6 +74,28 @@ export async function deleteRobot(name: string, dir = ROBOTS_DIR): Promise<strin
   const removed = join(dir, `${safeName(name)}.deleted-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
   await rename(path, removed);
   return removed;
+}
+
+/**
+ * Rename a scraper, with everything that its name is the key to.
+ *
+ * A name is not a label here: the file is named by it, so is the memory of what the scraper has already
+ * handed over, and every line of its history says it. Renaming only the file leaves a scraper that has
+ * forgotten everything it ever returned and has no past — which looks exactly like a new scraper, and
+ * is the reason renaming was missing rather than half-done.
+ */
+export async function renameRobot(from: string, to: string, dir = ROBOTS_DIR): Promise<Robot> {
+  const wanted = to.trim();
+  if (!wanted) throw new InputError('a scraper needs a name');
+  if (safeName(wanted) === safeName(from)) throw new InputError(`it is already called "${from}"`);
+
+  const robot = await loadRobot(from, dir);
+  const renamed = { ...robot, name: wanted } as Robot;
+
+  // Refuses if the new name is taken, and does so before anything has moved.
+  await createRobot(renamed, dir);
+  await rm(join(dir, `${safeName(from)}.json`), { force: true });
+  return renamed;
 }
 
 export async function loadRobot(name: string, dir = ROBOTS_DIR): Promise<Robot> {

@@ -190,6 +190,49 @@ test('four channels become four scrapers, one each', async () => {
  * @OFMJobs are different sources with the same word for a name. Writing one over the other destroys a
  * scraper and everything it remembered having already handed over.
  */
+/**
+ * A name here is not a label: the file is named by it, the memory of what has already been handed over
+ * is filed under it, and every line of history says it. A rename that moved only the file would hand
+ * back a scraper with no past and no memory — a new scraper wearing an old name.
+ */
+test('renaming a scraper brings its history along', async () => {
+  await call('/api/telegram/robot', { channels: '@before', limit: 10 });
+
+  const renamed = await call('/api/robot/rename', { name: 'before', to: 'after' });
+  assert.equal(renamed.status, 200);
+  assert.equal(renamed.body.name, 'after');
+  assert.equal(renamed.body.was, 'before');
+
+  const listed = await call('/api/robots', {});
+  const names = listed.body.robots.map((robot) => robot.name);
+  assert.ok(names.includes('after'), 'the new name is there');
+  assert.ok(!names.includes('before'), 'and the old one is not, rather than both');
+});
+
+test('a rename onto a name in use is refused, and changes nothing', async () => {
+  await call('/api/telegram/robot', { channels: '@one, @two', limit: 10 });
+
+  const clash = await call('/api/robot/rename', { name: 'one', to: 'two' });
+  assert.equal(clash.status, 400);
+  assert.match(clash.body.error, /already exists/);
+
+  const listed = await call('/api/robots', {});
+  const names = listed.body.robots.map((robot) => robot.name);
+  assert.ok(names.includes('one') && names.includes('two'), 'both are still there, and still themselves');
+});
+
+test('a rename to nothing, or to the same name, is refused rather than half-done', async () => {
+  await call('/api/telegram/robot', { channels: '@steady', limit: 10 });
+
+  const empty = await call('/api/robot/rename', { name: 'steady', to: '   ' });
+  assert.equal(empty.status, 400);
+  assert.match(empty.body.error, /needs a name/);
+
+  const same = await call('/api/robot/rename', { name: 'steady', to: 'steady' });
+  assert.equal(same.status, 400);
+  assert.match(same.body.error, /already called/);
+});
+
 test('a scraper is never created over one that already exists', async () => {
   await call('/api/telegram/robot', { channels: '@taken', limit: 10 });
   const again = await call('/api/telegram/robot', { channels: '@taken', limit: 10 });

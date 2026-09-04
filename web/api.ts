@@ -119,6 +119,8 @@ export const api = {
   removeProxy: (id: string) => post<{ proxies: ProxyView[] }>('/api/proxies/remove', { id }),
   checkProxy: (id: string) => post<ProxyView & { exitIp: string; latencyMs: number }>('/api/proxies/check', { id }),
   /** One page, no model, nothing remembered: is this scraper still getting rows out of that site? */
+  renameScraper: (name: string, to: string) =>
+    post<{ name: string; was: string; runs: number }>('/api/robot/rename', { name, to }),
   checkScraper: (name: string) =>
     post<{ name: string; ok: boolean; status: string; rows: number; challenge: boolean; note: string; at: string }>(
       '/api/robot/check',
