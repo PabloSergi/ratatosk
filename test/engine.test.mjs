@@ -41,6 +41,42 @@ const base = {
 };
 const withLinks = { ...base, pagination: { type: 'link', next: 'a[rel=next]', maxPages: 20 } };
 
+/**
+ * A pager that shifts under you: page two opens with the row that was last on page one, because three
+ * new postings arrived while the walk was going. Every real list does this, and nobody wants the same
+ * vacancy twice in one table.
+ */
+class ShiftingPage extends FakePage {
+  async evaluate(fn) {
+    if (fn.includes('blocksSeen')) {
+      // Page 0: rows 0,1,2. Page 1: rows 2,3,4 — the overlap is real and it is the same posting.
+      const start = this.pageIndex * 2;
+      const rows = [0, 1, 2].map((step) => ({ title: `posting number ${start + step}` }));
+      return { rows, blocksSeen: 3, missing: {} };
+    }
+    return super.evaluate(fn);
+  }
+}
+
+test('the same row on two pages is handed over once', async () => {
+  const page = new ShiftingPage({ pages: 3 });
+  const result = await runScenario(page, parseScenario(JSON.stringify({ ...withLinks, expect: { minRowsPerPage: 1 } })));
+
+  assert.equal(result.status, 'ok');
+  const titles = result.rows.map((row) => row.title);
+  assert.deepEqual(new Set(titles).size, titles.length, 'no row is handed over twice');
+  assert.equal(result.evidence.duplicates, 2, 'and how many were dropped is said out loud');
+  assert.match(result.reason, /duplicate row\(s\) dropped/);
+});
+
+test('rows that merely look alike are not merged', async () => {
+  const page = new FakePage({ rowsPerPage: 2, pages: 2 });
+  const result = await runScenario(page, parseScenario(JSON.stringify(withLinks)));
+
+  assert.equal(result.rows.length, 4, 'four different rows across two pages stay four');
+  assert.equal(result.evidence.duplicates, undefined, 'and nothing is reported that did not happen');
+});
+
 test('rows on one page', async () => {
   const result = await runScenario(new FakePage({ rowsPerPage: 2 }), parseScenario(base));
   assert.equal(result.status, 'ok');

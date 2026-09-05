@@ -43,6 +43,12 @@ const DEFAULT_DAYS = 30;
 /** Column names that mean "the address of this thing", in the languages people build scrapers in. */
 const LINK_NAMES = ['link', 'url', 'href', 'ссылка', 'enlace', 'lien', 'länk', 'odkaz'];
 
+/**
+ * How much text has to be left after dropping a trailing scrap for the drop to be safe. Below this,
+ * the last word is not a bump — it is what distinguishes one row from the next.
+ */
+const ENOUGH_WITHOUT_THE_TAIL = 40;
+
 /** …and the ones that mean "when", which change on their own and so cannot identify anything. */
 const WHEN_NAMES = /date|time|seen|дата|время|fecha|hora|datum|zeit/i;
 
@@ -71,6 +77,22 @@ export function memoryFileFor(userId: string, robot: string): string {
  * explicit column as its identity instead.
  */
 export function identity(row: Row, by?: string): string | undefined {
+  return key(row, by, true);
+}
+
+/**
+ * The identity of a row within ONE run, where a bump cannot have happened.
+ *
+ * The difference matters and it is not a detail. Between runs, "…оплата 60% UP" and "…оплата 60%" are
+ * one posting somebody pushed back to the top. Within a single walk, nobody bumped anything in the
+ * three seconds between page one and page two — so two rows that differ by their last word are two
+ * rows, and merging them loses one. "Room 1" and "Room 2" is the whole of the argument.
+ */
+export function sameRowInThisRun(row: Row): string | undefined {
+  return key(row, undefined, false);
+}
+
+function key(row: Row, by: string | undefined, stripBumps: boolean): string | undefined {
   if (by) {
     const value = row[by];
     return value ? `k:${value.trim().toLowerCase()}` : undefined;
@@ -92,9 +114,16 @@ export function identity(row: Row, by?: string): string | undefined {
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
 
-  // A bump is a scrap on the end — "up" in any language, a repeated emoji already stripped above. One or two
-  // characters trailing the text carry no meaning and must not make a repost look like news.
-  const body = text.replace(/(?:\s+\S{1,2})+$/u, '').trim() || text;
+  // A bump is a scrap on the end — "up" in any language, a repeated emoji already stripped above. One
+  // or two characters trailing the text carry no meaning on a real posting and must not make a repost
+  // look like news.
+  //
+  // …but only on a real posting. On a short row the last word is most of what the row says: "Room 1"
+  // and "Room 2" differ by exactly the scrap this would throw away, and throwing it away merges two
+  // rows into one and loses one of them for good. So the tail is only ignored when there is a body
+  // left that is worth identifying.
+  const trimmed = text.replace(/(?:\s+\S{1,2})+$/u, '').trim();
+  const body = stripBumps && trimmed.length >= ENOUGH_WITHOUT_THE_TAIL ? trimmed : text;
 
   if (body.length < 12) return undefined; // too little to be an identity; treat it as always new
   return `h:${createHash('sha256').update(body.slice(0, HEAD)).digest('hex').slice(0, 24)}`;

@@ -1,4 +1,5 @@
 import type { PageDriver } from './driver.js';
+import { sameRowInThisRun } from './memory.js';
 import type { ExtractResult } from './extractor.js';
 import { asExtractResult, EXTRACTOR_SOURCE, ExtractionError } from './extractor.js';
 import { applyRules, type SiteRule } from './rules.js';
@@ -20,7 +21,14 @@ export interface RunResult {
   rows: Array<Record<string, string | null>>;
   pagesVisited: number;
   reason?: string;
-  evidence?: { blocksSeen: number; missingFields: Record<string, number>; url: string; rowsOpened?: number };
+  evidence?: {
+    blocksSeen: number;
+    missingFields: Record<string, number>;
+    url: string;
+    rowsOpened?: number;
+    /** Rows this run collected twice and handed over once. */
+    duplicates?: number;
+  };
   /** Which site rules fired, so a changed page is never a silent change. */
   rulesApplied?: string[];
 }
@@ -31,6 +39,11 @@ export interface RunOptions {
 
 export async function runScenario(page: PageDriver, scenario: Scenario, options: RunOptions = {}): Promise<RunResult> {
   const rows: Array<Record<string, string | null>> = [];
+  // What has already been collected in THIS run. A pager that shifts under you shows page one's last
+  // rows again on page two; a site with a pinned posting shows it on every page. Both hand the same
+  // thing over twice, and a table with the same vacancy eleven times is a table nobody trusts.
+  const collected = new Set<string>();
+  let duplicates = 0;
   let pagesVisited = 0;
   let lastExtract: ExtractResult = { rows: [], blocksSeen: 0, missing: {} };
   let paginationStopped: string | undefined;
@@ -95,6 +108,8 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
     if (scenario.pagination.type === 'scroll') {
       // Infinite scroll keeps growing the same document, so every round re-reads all rows.
       rows.length = 0;
+      collected.clear();
+      duplicates = 0;
     } else {
       const fingerprint = JSON.stringify(lastExtract.rows.slice(0, 3));
       if (seenPages.has(fingerprint)) {
@@ -103,7 +118,18 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
       }
       seenPages.add(fingerprint);
     }
-    rows.push(...lastExtract.rows);
+    for (const row of lastExtract.rows) {
+      // The memory's notion of "the same row", minus its tolerance for bumps: nobody bumped a posting
+      // in the three seconds between page one and page two, so two rows differing by their last word
+      // are two rows.
+      const key = sameRowInThisRun(row);
+      if (key && collected.has(key)) {
+        duplicates++;
+        continue;
+      }
+      if (key) collected.add(key);
+      rows.push(row);
+    }
     pagesVisited++;
 
     if (lastExtract.rows.length < scenario.expect.minRowsPerPage) break;
@@ -135,6 +161,9 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
     missingFields: lastExtract.missing,
     url: await page.currentUrl(),
     ...(scenario.detail ? { rowsOpened: visited } : {}),
+    // Said out loud rather than quietly dropped: a walk that keeps handing back the same rows is a
+    // pager going nowhere, and the count is how you notice.
+    ...(duplicates > 0 ? { duplicates } : {}),
   };
 
   if (rows.length > 0) {
@@ -157,7 +186,11 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
       };
     }
 
-    const reason = paginationStopped ? `walk stopped early: ${paginationStopped}` : undefined;
+    const why = [
+      paginationStopped ? `walk stopped early: ${paginationStopped}` : undefined,
+      duplicates > 0 ? `${duplicates} duplicate row(s) dropped along the way` : undefined,
+    ].filter(Boolean);
+    const reason = why.length ? why.join('; ') : undefined;
     return { status: 'ok', rows, pagesVisited, reason, evidence, rulesApplied };
   }
 

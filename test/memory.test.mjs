@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
 
-import { identity, meet, readMemory, writeMemory } from '../src/memory.ts';
+import { identity, meet, readMemory, sameRowInThisRun, writeMemory } from '../src/memory.ts';
 
 /**
  * The failure this exists for: a bot reposts the same advertisement every ten minutes, and by the end
@@ -110,4 +110,41 @@ test('two postings that merely open alike are still two postings', () => {
   const second = meet([{ text: `${head} Position: operator, Valencia, 60 000` }], first.memory, {});
 
   assert.equal(second.fresh.length, 1, 'the part that differs is inside the first two hundred characters');
+});
+
+/**
+ * The tail rule cuts both ways, and the wrong side of it loses data. Between runs, a scrap on the end
+ * is somebody bumping their posting. Within one walk nobody bumped anything, and two rows that differ
+ * by their last word are two rows — "Room 1" and "Room 2" is the whole of the argument.
+ */
+test('a short row is identified by all of it, tail included', () => {
+  const one = identity(posting('Room 1 available now'));
+  const other = identity(posting('Room 2 available now'));
+  assert.notEqual(one, other, 'the number is what the row is about, not a bump');
+});
+
+test('a long posting still survives a bump on the end', () => {
+  const long = 'Looking for a chat operator for the evening shift, 60% of takings, training provided. ';
+  assert.equal(
+    identity(posting(long)),
+    identity(posting(`${long} UP`)),
+    'on a real posting the tail carries nothing',
+  );
+});
+
+test('within one run, nothing is forgiven on the end', () => {
+  const long = 'Looking for a chat operator for the evening shift, 60% of takings, training provided. ';
+  assert.notEqual(
+    sameRowInThisRun(posting(long)),
+    sameRowInThisRun(posting(`${long} UP`)),
+    'nobody bumped a posting between page one and page two',
+  );
+
+  // …and the same row, twice on the same walk, is still the same row.
+  assert.equal(sameRowInThisRun(posting(long)), sameRowInThisRun(posting(long)));
+  assert.equal(
+    sameRowInThisRun(posting('anything', 'https://example.com/1')),
+    sameRowInThisRun(posting('rewritten', 'https://example.com/1')),
+    'a link settles it, here as everywhere',
+  );
 });
