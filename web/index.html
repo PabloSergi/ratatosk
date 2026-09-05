@@ -116,6 +116,19 @@
     </div>
     <div id="keysStatus" class="meta spaced"></div>
     <div id="keysList"></div>
+
+    <h2 class="spaced">Your own token</h2>
+    <p class="meta">
+      The same credential this browser is signed in with. An MCP client takes it as <code>RATATOSK_TOKEN</code>,
+      and so does the command line on an installation with accounts. It is your account rather than a key
+      of its own: it expires with your session and signing out ends it — for anything that has to keep
+      working next month, make a key above instead.
+    </p>
+    <div class="row">
+      <button id="showToken">Show it</button>
+      <span class="meta" id="tokenNote"></span>
+    </div>
+    <div id="tokenOut"></div>
   </section>
 
   <!-- MODEL ----------------------------------------------------------------------------------->

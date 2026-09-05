@@ -156,22 +156,25 @@ function signedIn(user: Account): void {
   show('views', true);
   showView(view);
 
-  el('who').innerHTML =
-    `${escapeHtml(user.email)} · <a href="#" id="showToken">token for MCP</a> · <a href="#" id="signOut">sign out</a>`;
+  el('who').innerHTML = `${escapeHtml(user.email)} · <a href="#" id="signOut">sign out</a>`;
 
   el('signOut').addEventListener('click', (event) => {
     event.preventDefault();
     signedOut();
   });
-  el('showToken').addEventListener('click', (event) => {
-    event.preventDefault();
-    result(
-      'token for MCP',
-      '<div class="meta">Put this in your MCP client config as RATATOSK_TOKEN. It is your account — treat it' +
-        ` like a password, and sign out to end it.</div><pre>${escapeHtml(currentToken())}</pre>`,
-    );
-  });
 }
+
+/**
+ * The account's own token, on the page about credentials rather than in a panel at the foot of
+ * whatever happened to be open. Shown when asked and not before: it is on screen, and screens are
+ * shared, photographed and recorded.
+ */
+el('showToken').addEventListener('click', () => {
+  const shown = el('tokenOut').innerHTML !== '';
+  el('tokenOut').innerHTML = shown ? '' : `<pre>${escapeHtml(currentToken())}</pre>`;
+  el('tokenNote').textContent = shown ? '' : 'treat it like a password';
+  el<HTMLButtonElement>('showToken').textContent = shown ? 'Show it' : 'Hide it';
+});
 
 async function enter(kind: 'login' | 'register'): Promise<void> {
   const email = value('authEmail');
