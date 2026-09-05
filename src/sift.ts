@@ -49,6 +49,15 @@ export interface SiftResult {
   /** Rows no pattern claimed and no pattern refused — the ones worth a second opinion. */
   unclaimed: Row[];
   /**
+   * Everything this rule did not hand over, as it came in.
+   *
+   * Said outright rather than left to the caller to work out by subtraction: a kept row is a copy with
+   * the fields read out of its text added to it, so "the ones that are not in the kept list" quietly
+   * includes rows that were kept. Half of judging a rule is looking at what it threw away, and that
+   * half was being done against the wrong pile.
+   */
+  discarded: Row[];
+  /**
    * Rows a keep pattern claimed and a drop pattern then took away.
    *
    * This is where a rule loses data without anybody noticing: "send your CV to @x" is a posting, and a
@@ -91,6 +100,7 @@ export function sift(rows: Row[], rule: Sift): SiftResult {
 
   const out: Row[] = [];
   const unclaimed: Row[] = [];
+  const discarded: Row[] = [];
   const collisions: Row[] = [];
   const examples = { kept: [] as string[], dropped: [] as string[], collisions: [] as string[] };
 
@@ -100,6 +110,7 @@ export function sift(rows: Row[], rule: Sift): SiftResult {
     const refused = drop.some((pattern) => pattern.test(text));
 
     if (!wanted || refused) {
+      discarded.push(row);
       if (examples.dropped.length < 3) examples.dropped.push(text.replace(/\s+/g, ' ').slice(0, 90));
       // Refused outright is a decision; merely unclaimed is a question, and a question can be asked.
       if (!refused) unclaimed.push(row);
@@ -124,7 +135,7 @@ export function sift(rows: Row[], rule: Sift): SiftResult {
     if (examples.kept.length < 3) examples.kept.push(text.replace(/\s+/g, ' ').slice(0, 90));
   }
 
-  return { rows: out, unclaimed, collisions, kept: out.length, dropped: rows.length - out.length, examples };
+  return { rows: out, unclaimed, discarded, collisions, kept: out.length, dropped: discarded.length, examples };
 }
 
 /**

@@ -363,3 +363,25 @@ test('the complaint names the drop that ate the posting', async () => {
   assert.match(complaint, /needs a guard/);
   assert.ok(built.sift, 'and the guarded rule is accepted');
 });
+
+test('what a rule threw away is handed back as it came in, fields and all', () => {
+  const stream = [
+    { text: 'Chat operator needed, rate 1500 EUR a month' },
+    { text: 'Selling traffic, daily posting' },
+  ];
+
+  const result = sift(stream, {
+    keep: ['needed'],
+    drop: ['selling'],
+    fields: { pay: { pattern: '(\\d[\\d\\s]{2,}\\s*EUR)' } },
+  });
+
+  assert.equal(result.discarded.length, 1, 'exactly what it did not hand over');
+  assert.match(result.discarded[0].text, /Selling traffic/);
+  assert.equal(result.discarded[0].pay, undefined, 'and as it came in: nothing was read out of it');
+
+  // The trap this exists for: a kept row is a copy with new columns, so "not in the kept list" by
+  // object or by text quietly counts kept rows as thrown away.
+  assert.equal(result.rows[0].pay, '1500 EUR');
+  assert.ok(!result.discarded.some((row) => /operator needed/.test(row.text)), 'a kept row is not discarded');
+});

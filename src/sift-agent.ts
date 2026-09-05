@@ -173,8 +173,7 @@ export async function buildSift(options: SiftOptions): Promise<SiftBuild> {
 
       // …and the other half. A rule that keeps eleven perfect postings and throws away thirty more
       // passes a precision check with full marks, and is still losing most of what was asked for.
-      const dropped = options.sample.filter((row) => !result.rows.includes(row));
-      const missed = await checkKept(shuffled(dropped), options.want, ask, usage, 'dropped');
+      const missed = await checkKept(shuffled(result.discarded), options.want, ask, usage, 'dropped');
       attempts[attempts.length - 1]!.missed = missed;
 
       const missedShare = missed.checked ? missed.wrong / missed.checked : 0;

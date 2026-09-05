@@ -117,7 +117,7 @@ async function measure(rows: Row[], rule: Sift, want: string, ask: Ask): Promise
   // for; what changed is everything else people started writing, and that lands in the discard pile
   // where nobody looks. Rot is far more often a rule that has stopped catching things than a rule
   // that has started catching the wrong ones.
-  const discarded = rows.filter((row) => !result.rows.includes(row)).slice(0, 15);
+  const discarded = result.discarded.slice(0, 15);
   const second = discarded.length
     ? await ask([
         {
