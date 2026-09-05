@@ -80,7 +80,19 @@ What matters:
 - Write for the language the messages are in, and for how people really write: abbreviations, typos,
   missing spaces after punctuation, emoji in the middle of a word.
 - Do not write one enormous pattern. Several plain ones are easier to read and to repair later.
-- A rule that keeps everything is not a rule. Neither is one that keeps two messages out of two hundred.
+- **Two shapes of rule, and the wrong shape is the usual mistake.** Naming what you want works when the
+  wanted messages are a minority written in a handful of wordings. When most of the stream is already
+  what the task asks for — a channel that exists for exactly this — naming it means listing every way a
+  human might phrase it, and you will miss half. Then invert: leave "keep" EMPTY, which keeps
+  everything, and describe the few kinds of message that do not belong. Look at the sample and decide
+  which of the two you are in before writing a single pattern.
+- **A drop can be guarded, and usually should be.** A message that mentions the noise and also carries
+  the thing wanted is the thing wanted: "we have traffic, we are hiring a chatter" is a posting. These
+  are JavaScript regular expressions, so a guard is a negative lookahead at the front:
+  "^(?![\\s\\S]*(hiring|vacancy|shifts|we need))[\\s\\S]*(selling traffic|our traffic)" fires only where
+  nothing in the message suggests what was asked for.
+- A rule that keeps everything AND drops nothing is not a rule. Neither is one that keeps two messages
+  out of two hundred.
 - A drop must not describe a word that also appears inside what you want. "Resume", "CV", "interested"
   and "experience" are written in postings as often as in the answers to them; a drop built on those
   removes the very messages you were asked to find. Aim a drop at who is speaking, not at a topic.
