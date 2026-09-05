@@ -18,13 +18,16 @@ const TODAY = [
 ];
 
 /** A model that answers each kind of question the repair asks. */
-const model = ({ wrong = [], rules = [] } = {}) => {
+const model = ({ wrong = [], missed = [], rules = [] } = {}) => {
   const asked = [];
+  let looked = 0;
   const ask = async (messages) => {
     const last = messages[messages.length - 1].content;
     asked.push(last);
-    if (/Which do NOT match|do NOT match it/.test(last)) return { content: JSON.stringify({ wrong }) };
-    if (/do NOT match/.test(last)) return { content: 'none' };
+    // Two questions, opposite directions: what was kept wrongly, and what was thrown away wrongly.
+    // The complaint applies to the rule as it was — the rewritten one is judged on its own.
+    if (/DO match it/.test(last)) return { content: JSON.stringify({ wrong: looked++ === 0 ? missed : [] }) };
+    if (/do NOT match/i.test(last)) return { content: JSON.stringify({ wrong }) };
     return { content: rules.shift() ?? '{}' };
   };
   ask.asked = asked;
@@ -91,4 +94,28 @@ test('when the model cannot write a better rule, the old one stays', async () =>
 
   assert.equal(repair.status, 'unfixable');
   assert.equal(repair.sift, undefined, 'nothing replaces a rule until it is proved better');
+});
+
+/**
+ * How a rule actually rots: not by starting to keep the wrong things, but by quietly stopping to catch
+ * the right ones. People change how they write; the rule keeps matching the wording it was made for
+ * and everything else lands in the discard pile, where nobody looks.
+ */
+test('a rule that has stopped catching things is rotted, however clean what it keeps', async () => {
+  const ask = model({
+    wrong: [],           // everything it kept is right…
+    missed: [1, 2, 3, 4], // …and it threw away four postings out of the handful it was shown
+    rules: [JSON.stringify({ keep: ['we are looking for', 'needed', 'need a'], drop: ['looking for work'] })],
+  });
+
+  const repair = await repairRule({
+    rows: TODAY,
+    sift: { want: 'job postings', keep: ['we are looking for'], drop: [] },
+    ask,
+  });
+
+  assert.equal(repair.before.good, false, 'clean precision is not the same as doing the job');
+  assert.match(repair.before.note, /threw away were what was asked for/);
+  assert.equal(repair.before.missed, 4);
+  assert.equal(repair.status, 'repaired');
 });

@@ -64,9 +64,11 @@ const saying = (...answers) => {
   const ask = async (messages) => {
     const last = messages[messages.length - 1].content;
     said.push(last);
-    // The platform reads the kept messages back and asks which do not belong; unless a test says
-    // otherwise, they all do.
-    if (/do NOT match/.test(last)) return { content: 'none', usage: { prompt_tokens: 5, completion_tokens: 2 } };
+    // The platform reads its own decisions back — which of the kept ones do not belong, and which of
+    // the thrown-away ones did. Unless a test says otherwise, both answers are "none".
+    if (/do NOT match|should have been kept/.test(last)) {
+      return { content: 'none', usage: { prompt_tokens: 5, completion_tokens: 2 } };
+    }
     return { content: answers.shift() ?? '{}', usage: { prompt_tokens: 10, completion_tokens: 5 } };
   };
   ask.said = said;
@@ -83,7 +85,7 @@ test('the model writes a rule and the platform proves it on the messages', async
   assert.ok(built.sift, 'a rule that separates them is kept');
   assert.equal(built.attempts[0].good, true);
   assert.equal(built.attempts[0].kept, 3);
-  assert.equal(built.usage.calls, 2, 'one call to write the rule, one to check what it kept');
+  assert.equal(built.usage.calls, 3, 'one to write the rule, one to check what it kept, one what it threw away');
   assert.match(ask.said[0], /looking for a designer/, 'the model was shown real messages, not a description of them');
 });
 
@@ -186,6 +188,7 @@ test('a rule that keeps the wrong direction is refused, however much it keeps', 
   let audits = 0;
   const ask = async (messages) => {
     const last = messages[messages.length - 1].content;
+    if (/should have been kept/.test(last)) return { content: 'none' }; // nothing good was thrown away
     if (/do NOT match/.test(last)) {
       audits++;
       // Numbered within what was kept, not within the sample: the first rule kept two CVs.
@@ -252,4 +255,45 @@ test('a model that explains itself is not misread as choosing', async () => {
 
   const none = await judgeLeftovers(leftovers, 'job postings', async () => '{"keep":[]}', 40);
   assert.deepEqual(none.rows, []);
+});
+
+/**
+ * The other half of correctness, and the half that hides. A rule that keeps eleven perfect postings
+ * and throws away thirty more passes a precision check with full marks while losing most of what was
+ * asked for — silently, which is the failure this whole project exists to prevent.
+ */
+test('a rule that throws away what was asked for is refused, however right the rest of it is', async () => {
+  const sample = [
+    { text: 'We are looking for a chat operator, evening shift' },
+    { text: 'Urgently need operators, night shifts, no experience' },
+    { text: 'Vacancy: team lead, remote' },
+    { text: 'Agency opening a new intake of operators' },
+    { text: 'Selling traffic, daily posting' },
+    { text: 'up' },
+  ];
+
+  // The first rule matches one wording and misses the other three postings. The second is wider.
+  const answers = [
+    JSON.stringify({ keep: ['we are looking for'], drop: [] }),
+    JSON.stringify({ keep: ['looking for', 'need operators', 'vacancy', 'intake of'], drop: ['selling'] }),
+  ];
+  let asked = 0;
+  const ask = async (messages) => {
+    const last = messages[messages.length - 1].content;
+    if (/should have been kept/.test(last)) {
+      asked++;
+      // The first rule threw away three real postings out of the five it was shown.
+      return { content: asked === 1 ? '1, 2, 3' : 'none' };
+    }
+    if (/do NOT match/.test(last)) return { content: 'none' };
+    return { content: answers.shift() ?? '{}' };
+  };
+
+  const built = await buildSift({ sample, want: 'job postings', apiKey: 'x', model: 'm', baseUrl: 'https://nowhere', ask });
+
+  assert.equal(built.attempts[0].good, false, 'keeping only what it understood is not keeping what was asked');
+  assert.match(built.attempts[0].note, /threw away/);
+  assert.equal(built.attempts[0].missed.wrong, 3);
+  assert.ok(built.sift, 'and the wider rule is accepted');
+  assert.ok(built.sift.keep.length > 1);
 });

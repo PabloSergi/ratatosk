@@ -21,6 +21,9 @@ export interface RuleHealth {
   /** Of the kept rows that were checked, how many did not belong. Absent when nothing was checked. */
   wrong?: number;
   checked?: number;
+  /** …and of the thrown-away ones that were checked, how many did belong. Where rot actually shows. */
+  missed?: number;
+  missedOf?: number;
   good: boolean;
   note: string;
 }
@@ -109,18 +112,45 @@ async function measure(rows: Row[], rule: Sift, want: string, ask: Ask): Promise
   ]);
 
   const wrong = wrongOnes(reply.content, batch.length);
-  const share = batch.length ? wrong / batch.length : 0;
+
+  // And the half that hides. A rule people wrote a year ago still keeps the wording it was written
+  // for; what changed is everything else people started writing, and that lands in the discard pile
+  // where nobody looks. Rot is far more often a rule that has stopped catching things than a rule
+  // that has started catching the wrong ones.
+  const discarded = rows.filter((row) => !result.rows.includes(row)).slice(0, 15);
+  const second = discarded.length
+    ? await ask([
+        {
+          role: 'user',
+          content:
+            `Task: ${want}\n\n` +
+            `A rule threw these away as not matching the task. Which of them DO match it?\n` +
+            `Answer with JSON and nothing else: {"wrong":[1,3]} — or {"wrong":[]} if none of them do.\n\n` +
+            discarded.map((row, index) => `${index + 1}. ${text(row).replace(/\s+/g, ' ').slice(0, 250)}`).join('\n'),
+        },
+      ])
+    : { content: '{"wrong":[]}' };
+  const missed = wrongOnes(second.content, discarded.length);
+
+  const wrongShare = batch.length ? wrong / batch.length : 0;
+  const missedShare = discarded.length ? missed / discarded.length : 0;
+  const rotted = wrongShare > WRONG_ENOUGH || missedShare > WRONG_ENOUGH;
+
   return {
     sampled: rows.length,
     kept: result.kept,
     collisions: result.collisions.length,
     checked: batch.length,
     wrong,
-    good: share <= WRONG_ENOUGH,
-    note:
-      share > WRONG_ENOUGH
-        ? `${verdict.note}, but ${wrong} of ${batch.length} checked were not what was asked`
-        : `${verdict.note}${wrong ? `, ${wrong} of ${batch.length} checked were off` : ''}`,
+    missed,
+    missedOf: discarded.length,
+    good: !rotted,
+    note: rotted
+      ? missedShare > WRONG_ENOUGH
+        ? `${verdict.note}, but ${missed} of ${discarded.length} it threw away were what was asked for`
+        : `${verdict.note}, but ${wrong} of ${batch.length} checked were not what was asked`
+      : `${verdict.note}${wrong ? `, ${wrong} of ${batch.length} kept were off` : ''}` +
+        `${missed ? `, ${missed} of ${discarded.length} thrown away belonged` : ''}`,
   };
 }
 

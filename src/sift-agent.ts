@@ -24,6 +24,8 @@ export interface SiftAttempt {
   collisions: number;
   /** Of the kept messages that were checked, how many were not what the task asked for. */
   wrong?: { checked: number; wrong: number; examples: string[] };
+  /** …and of the thrown-away ones, how many were. This is where a rule loses data quietly. */
+  missed?: { checked: number; wrong: number; examples: string[] };
 }
 
 export interface SiftBuild {
@@ -155,6 +157,32 @@ export async function buildSift(options: SiftOptions): Promise<SiftBuild> {
       const audit = await checkKept(result.rows, options.want, ask, usage);
       attempts[attempts.length - 1]!.wrong = audit;
 
+      // …and the other half. A rule that keeps eleven perfect postings and throws away thirty more
+      // passes a precision check with full marks, and is still losing most of what was asked for.
+      const dropped = options.sample.filter((row) => !result.rows.includes(row));
+      const missed = await checkKept(shuffled(dropped), options.want, ask, usage, 'dropped');
+      attempts[attempts.length - 1]!.missed = missed;
+
+      const missedShare = missed.checked ? missed.wrong / missed.checked : 0;
+      if (missedShare > 0.2) {
+        attempts[attempts.length - 1]!.good = false;
+        attempts[attempts.length - 1]!.note =
+          `it keeps ${result.kept}, but ${missed.wrong} of ${missed.checked} it threw away were what was asked for`;
+
+        messages.push({ role: 'assistant', content: reply.content });
+        messages.push({
+          role: 'user',
+          content:
+            `${attempts[attempts.length - 1]!.note}.\n` +
+            `These were thrown away and should have been kept: ${missed.examples.join(' | ')}\n` +
+            `Widen the keeps: people do not write one sentence pattern. The same posting appears as ` +
+            `"we need", "urgently need", "looking for", "vacancy:", "recruiting", with emoji and ` +
+            `capitals in between, and the job word may come before the verb. Match on the job and the ` +
+            `direction rather than on a word order.`,
+        });
+        continue;
+      }
+
       const wrongShare = audit.checked ? audit.wrong / audit.checked : 0;
       if (wrongShare > 0.2) {
         attempts[attempts.length - 1]!.good = false;
@@ -217,11 +245,20 @@ export async function buildSift(options: SiftOptions): Promise<SiftBuild> {
  * One call, on a sample: this is the only way to catch a rule that is generous in the wrong direction,
  * and it costs a fraction of what a wrong robot costs the person running it.
  */
+/**
+ * Reading a rule's decisions back to a model, in whichever direction is being checked.
+ *
+ * Coverage is not correctness, and correctness has two halves. Asking only "is what you kept right?"
+ * measures precision and nothing else — a rule that keeps eleven perfect postings and throws away
+ * thirty more passes that test with full marks. The thrown-away half is where a rule loses data
+ * silently, which is the failure this whole project exists to prevent, so it is asked about too.
+ */
 async function checkKept(
   kept: Row[],
   want: string,
   ask: Ask,
   usage: { promptTokens: number; completionTokens: number; calls: number },
+  direction: 'kept' | 'dropped' = 'kept',
 ): Promise<{ checked: number; wrong: number; examples: string[] }> {
   const batch = kept.slice(0, 15);
   if (batch.length === 0) return { checked: 0, wrong: 0, examples: [] };
@@ -230,13 +267,16 @@ async function checkKept(
     .map((row, index) => `${index + 1}. ${textOf(row).replace(/\s+/g, ' ').slice(0, 250)}`)
     .join('\n');
 
+  const question =
+    direction === 'kept'
+      ? `A rule kept these messages as matching the task. Which of them do NOT match it? `
+      : `A rule threw these messages away as not matching the task. Which of them DO match it, and ` +
+        `should have been kept? `;
+
   const reply = await ask([
     {
       role: 'user',
-      content:
-        `Task: ${want}\n\n` +
-        `A rule kept these messages as matching the task. Which of them do NOT match it? ` +
-        `Answer with their numbers only, comma separated, or the word none.\n\n${listed}`,
+      content: `Task: ${want}\n\n${question}Answer with their numbers only, comma separated, or the word none.\n\n${listed}`,
     },
   ]);
   usage.calls++;
@@ -257,6 +297,21 @@ async function checkKept(
     wrong: wrong.length,
     examples: wrong.slice(0, 3).map((number) => textOf(batch[number - 1]!).replace(/\s+/g, ' ').slice(0, 110)),
   };
+}
+
+/**
+ * A sample of what was thrown away, from across the whole of it rather than the top.
+ *
+ * The first fifteen dropped rows are the fifteen oldest, and a channel's oldest messages are not what
+ * it is like today. Fifteen taken at random are.
+ */
+function shuffled(rows: Row[]): Row[] {
+  const copy = [...rows];
+  for (let index = copy.length - 1; index > 0; index--) {
+    const swap = Math.floor(Math.random() * (index + 1));
+    [copy[index], copy[swap]] = [copy[swap]!, copy[index]!];
+  }
+  return copy;
 }
 
 function textOf(row: Row): string {
