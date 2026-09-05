@@ -197,7 +197,7 @@ export function scraperCard(
     /** How many patterns its rule carries, if it has one. */
     sift?: number;
   },
-  standing?: { status: 'ok' | 'empty' | 'broken'; at: string; rows: number; inARow: number; why?: string },
+  standing?: { status: 'ok' | 'empty' | 'broken'; at: string; rows: number; inARow: number; why?: string; door?: boolean },
   /** A probe done just now, which is newer than any run and therefore what the card should say. */
   check?: { at: string; ok: boolean; note: string },
   /** How often it runs by itself, if it does. */
@@ -237,6 +237,14 @@ export function scraperCard(
         <div class="history" data-history-for="${escapeHtml(scraper.name)}" hidden></div>
       </div>
       <div class="row">
+        ${
+          // Only when the last run actually hit one. A button offering to open a door that is not
+          // there is a button that teaches people to ignore it.
+          standing?.door
+            ? `<button class="primary" data-scraper-door="${escapeHtml(scraper.name)}"
+                 title="open this address in this scraper's own browser, through its own proxy, and pass the check by hand">Open it myself</button>`
+            : ''
+        }
         <select class="tiny" data-every="${escapeHtml(scraper.name)}" title="how often it runs by itself">
           ${EVERY.map(
             ([minutes, label]) =>

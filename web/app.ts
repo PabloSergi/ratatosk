@@ -712,18 +712,31 @@ el('keyCreate').addEventListener('click', async () => {
   }
 });
 
+/**
+ * Opening a door in the scraper's own browser.
+ *
+ * One function, two ways in: the form at the top, for a site being set up, and the button on a card
+ * whose last run hit a check. The second exists because the card was already saying "open it yourself
+ * once" while offering no way to do it — you had to scroll up, copy the address back out of the card
+ * and remember which way out that scraper goes, and getting the proxy wrong means passing a door for
+ * a profile the scraper does not use.
+ */
+async function openDoor(url: string, proxy: string | undefined, where: string): Promise<void> {
+  const session = await api.takeover(url, proxy);
+  window.open(session.view, '_blank', 'noreferrer');
+  show(where, true);
+  el(where).innerHTML =
+    `${badge('ok')} open in a new tab until ${escapeHtml(new Date(session.expiresAt).toLocaleTimeString())} — ` +
+    `press straight on the picture, and finish with <b>Save and close</b> there: that is what writes the ` +
+    `profile. Need the whole desktop instead? ` +
+    `<a href="${escapeHtml(session.desktop)}" target="_blank" rel="noreferrer">open it over VNC</a>.`;
+}
+
 el('takeoverOpen').addEventListener('click', async () => {
   const done = busy(el<HTMLButtonElement>('takeoverOpen'), 'starting a screen');
   try {
     // The same address and the same way out as the build below it: one door, not a second set of fields.
-    const session = await api.takeover(value('url'), value('buildProxy') || undefined);
-    window.open(session.view, '_blank', 'noreferrer');
-    show('takeoverNote', true);
-    el('takeoverNote').innerHTML =
-      `${badge('ok')} open in a new tab until ${escapeHtml(new Date(session.expiresAt).toLocaleTimeString())} — ` +
-      `press straight on the picture, and finish with <b>Save and close</b> there: that is what writes the ` +
-      `profile. Need the whole desktop instead? ` +
-      `<a href="${escapeHtml(session.desktop)}" target="_blank" rel="noreferrer">open it over VNC</a>.`;
+    await openDoor(value('url'), value('buildProxy') || undefined, 'takeoverNote');
   } catch (error) {
     show('takeoverNote', true);
     fail('takeoverNote', error);
@@ -978,6 +991,20 @@ document.addEventListener('click', async (event) => {
         api.keptRuns(id).catch(() => ({ kept: [] })),
       ]);
       panel.innerHTML = scraperHistory(runs, id, kept.map((one) => one.at));
+    }],
+    ['data-scraper-door', 'result', async (id) => {
+      // The address and the way out come from the scraper itself, so the profile the door is passed
+      // for is the profile the scraper runs in. Getting that wrong is the whole reason this exists.
+      const scraper = known.find((one) => one.name === id);
+      if (!scraper) return;
+
+      const done = busy(pressed, 'opening');
+      try {
+        result(id, '<div id="doorNote" class="meta"></div>');
+        await openDoor(scraper.url, scraper.proxy, 'doorNote');
+      } finally {
+        done();
+      }
     }],
     ['data-scraper-check', 'scrapers', async (id) => {
       const done = spinning(pressed);

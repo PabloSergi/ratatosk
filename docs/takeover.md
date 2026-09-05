@@ -10,6 +10,13 @@ A tab opens with the browser running on the server. You do the thing by hand. Wh
 behind — a cookie, a session — stays in the profile that scraper uses, so its next run arrives as a
 returning visitor rather than as a stranger.
 
+## Where the button is
+
+Two places, one act. In the build form, for a site you are setting up: paste the address, choose the way
+out, press **Open it myself**. And on the card of any scraper whose last run hit a check — there the
+address and the proxy come from the scraper itself, because passing a door through the wrong way out
+writes a profile that scraper never uses.
+
 ## What it is made of
 
 Not a remote desktop. A remote desktop sends pixels of a whole screen and expects your mouse to chase

@@ -291,3 +291,25 @@ test('the rule editor offers dedupe, on unless it was turned off', () => {
   assert.match(turnedOff, /id="ruleDedupe"/);
   assert.doesNotMatch(turnedOff, /id="ruleDedupe"[^>]*checked/, 'and one that turned it off keeps it off');
 });
+
+/**
+ * The card was telling people to open a door themselves while offering no way to do it: you had to
+ * scroll up to the build form, copy the address back out of the card, and remember which way out that
+ * scraper goes — and passing a check through the wrong proxy writes a profile the scraper never uses.
+ */
+test('a scraper stopped by a door is offered the way through it', () => {
+  const stopped = scraperCard(
+    { name: 'walled', url: 'https://example.com/jobs', fields: ['title'], pagination: 'none', proxy: 'p1' },
+    { status: 'broken', at: new Date().toISOString(), rows: 0, inARow: 2, why: 'confirm that you are human', door: true },
+  );
+  assert.match(stopped, /data-scraper-door="walled"/);
+  assert.match(stopped, /Open it myself/);
+});
+
+test('and a scraper that is merely broken is not', () => {
+  const rotted = scraperCard(
+    { name: 'rotted', url: 'https://example.com/jobs', fields: ['title'], pagination: 'none' },
+    { status: 'broken', at: new Date().toISOString(), rows: 0, inARow: 2, why: '"title" came back empty in all rows' },
+  );
+  assert.doesNotMatch(rotted, /data-scraper-door/, 'a door that is not there is a button that teaches people to ignore buttons');
+});
