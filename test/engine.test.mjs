@@ -69,6 +69,18 @@ test('the same row on two pages is handed over once', async () => {
   assert.match(result.reason, /duplicate row\(s\) dropped/);
 });
 
+test('a scraper can ask for its duplicates back, for a source where they are not duplicates', async () => {
+  const page = new ShiftingPage({ pages: 3 });
+  const result = await runScenario(
+    page,
+    parseScenario(JSON.stringify({ ...withLinks, dedupe: false, expect: { minRowsPerPage: 1 } })),
+  );
+
+  const titles = result.rows.map((row) => row.title);
+  assert.ok(titles.length > new Set(titles).size, 'a price tick repeated is a second price tick');
+  assert.equal(result.evidence.duplicates, undefined, 'and nothing was dropped to report');
+});
+
 test('rows that merely look alike are not merged', async () => {
   const page = new FakePage({ rowsPerPage: 2, pages: 2 });
   const result = await runScenario(page, parseScenario(JSON.stringify(withLinks)));

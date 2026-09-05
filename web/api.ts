@@ -157,9 +157,15 @@ export const api = {
   keys: () => post<{ keys: KeyView[] }>('/api/keys', {}),
   createKey: (label: string) => post<{ key: string; keys: KeyView[] }>('/api/keys/create', { label }),
   revokeKey: (id: string) => post<{ keys: KeyView[] }>('/api/keys/revoke', { id }),
-  rule: (name: string) => post<{ name: string; sift: Sift | null; remember: boolean }>('/api/robot/rule', { name }),
-  saveRule: (name: string, sift: Sift, remember: boolean) =>
-    post<{ saved: string; sift: Sift | null; remember: boolean }>('/api/robot/rule/save', { name, sift, remember }),
+  rule: (name: string) =>
+    post<{ name: string; sift: Sift | null; remember: boolean; dedupe: boolean }>('/api/robot/rule', { name }),
+  saveRule: (name: string, sift: Sift, remember: boolean, dedupe: boolean) =>
+    post<{ saved: string; sift: Sift | null; remember: boolean; dedupe: boolean }>('/api/robot/rule/save', {
+      name,
+      sift,
+      remember,
+      dedupe,
+    }),
   testRule: (name: string, sift?: Sift) =>
     post<{
       sampled: number;

@@ -401,6 +401,7 @@ export function ruleEditor(
   name: string,
   sift: { want?: string; keep: string[]; drop?: string[]; judge?: unknown } | null,
   remembering = false,
+  deduping = true,
 ): string {
   const rule = sift ?? { keep: [], drop: [] };
   return `
@@ -414,6 +415,9 @@ export function ruleEditor(
       <label class="meta"><input type="checkbox" id="ruleJudge" ${rule.judge ? 'checked' : ''}> ask a model about the edge</label>
       <label class="meta" title="the same posting reposted every ten minutes is not news; a run hands back only what it has not seen">
         <input type="checkbox" id="ruleRemember" ${remembering ? 'checked' : ''}> only what I have not seen before
+      </label>
+      <label class="meta" title="a pager that shifts under you shows the same posting on two pages; turn this off only where identical rows are genuinely different things">
+        <input type="checkbox" id="ruleDedupe" ${deduping ? 'checked' : ''}> drop rows repeated within a run
       </label>
     </div>
     <div class="row spaced">

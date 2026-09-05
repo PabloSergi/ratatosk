@@ -964,7 +964,7 @@ document.addEventListener('click', async (event) => {
     ['data-repair', 'scrapers', async (id) => repairScraper(id, pressed)],
     ['data-rule', 'scrapers', async (id) => {
       const rule = await api.rule(id);
-      result(`${id} — what it keeps`, ruleEditor(id, rule.sift, rule.remember));
+      result(`${id} — what it keeps`, ruleEditor(id, rule.sift, rule.remember, rule.dedupe));
     }],
     ['data-rule-test', 'scrapers', async (id) => {
       const done = busy(pressed, 'collecting');
@@ -998,14 +998,22 @@ document.addEventListener('click', async (event) => {
     ['data-rule-save', 'scrapers', async (id) => {
       const done = busy(pressed, 'saving');
       try {
-        const saved = await api.saveRule(id, ruleFromEditor(), el<HTMLInputElement>('ruleRemember').checked);
+        const saved = await api.saveRule(
+          id,
+          ruleFromEditor(),
+          el<HTMLInputElement>('ruleRemember').checked,
+          el<HTMLInputElement>('ruleDedupe').checked,
+        );
         el('ruleOut').innerHTML =
           (saved.sift
             ? `${badge('ok')} saved — the previous rule is kept beside it as .previous.json`
             : `${badge('empty')} saved with no rule — this scraper now keeps everything it collects`) +
           (saved.remember
             ? '<div class="meta">it will hand back only what it has not seen before</div>'
-            : '<div class="meta">it will hand back everything it collects, every time</div>');
+            : '<div class="meta">it will hand back everything it collects, every time</div>') +
+          (saved.dedupe
+            ? ''
+            : '<div class="meta">rows repeated inside one run will be handed over as many times as they appear</div>');
         await loadScrapers();
       } finally {
         done();

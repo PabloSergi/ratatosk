@@ -579,6 +579,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
       name: robot.name,
       sift: (robot as { sift?: unknown }).sift ?? null,
       remember: Boolean((robot as { remember?: unknown }).remember),
+      dedupe: (robot as { dedupe?: boolean }).dedupe !== false,
     };
   },
 
@@ -587,6 +588,8 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     const robot = await loadRobot(String(body['name'] ?? ''), dir);
     const rule = readRule(body['sift']);
     const remembering = body['remember'] === true || body['remember'] === 'true';
+    // Absent means yes: a scraper saved before this existed keeps doing the sensible thing.
+    const deduping = body['dedupe'] === undefined || body['dedupe'] === true || body['dedupe'] === 'true';
 
     // Compiled before it is written: a rule that cannot run is worse than no rule, because it fails at
     // four in the morning rather than here.
@@ -600,9 +603,11 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
       ...robot,
       ...(rule.keep.length || rule.drop?.length ? { sift: rule } : {}),
       ...(remembering ? { remember: { mode: 'new' as const } } : {}),
+      ...(deduping ? {} : { dedupe: false }),
     };
     if (!rule.keep.length && !rule.drop?.length) delete (updated as { sift?: unknown }).sift;
     if (!remembering) delete (updated as { remember?: unknown }).remember;
+    if (deduping) delete (updated as { dedupe?: unknown }).dedupe;
 
     await archivePrevious(robot.name, dir);
     await saveRobot(updated as typeof robot, dir);
@@ -610,6 +615,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
       saved: robot.name,
       sift: (updated as { sift?: unknown }).sift ?? null,
       remember: Boolean((updated as { remember?: unknown }).remember),
+      dedupe: (updated as { dedupe?: boolean }).dedupe !== false,
     };
   },
 

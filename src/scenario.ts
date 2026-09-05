@@ -21,6 +21,13 @@ export interface Scenario {
   sift?: SiftRule;
   /** Whether to hand back only what has not been seen before. See memory.ts. */
   remember?: { by?: string; days?: number; mode?: 'new' | 'all' };
+  /**
+   * Whether rows collected twice in the same walk are handed over once. On unless it is turned off:
+   * a pager that shifts under you returns the same posting on two pages, and nobody wants it twice.
+   * Off is for a source where identical rows are genuinely different things — a price tick, a reading
+   * from a sensor, the same line meaning something new every time it appears.
+   */
+  dedupe?: boolean;
   /** What a healthy run looks like. Falling below this is a broken run, not an empty site. */
   expect: { minRowsPerPage: number };
   /** Which of the account's proxies to go through, if any. Sites block by address, not by selector. */

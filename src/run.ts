@@ -43,6 +43,9 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
   // rows again on page two; a site with a pinned posting shows it on every page. Both hand the same
   // thing over twice, and a table with the same vacancy eleven times is a table nobody trusts.
   const collected = new Set<string>();
+  // On unless the scraper says otherwise. Off is for a source where identical rows are genuinely
+  // different things — a price tick, a sensor reading, the same line meaning something new each time.
+  const dedupe = scenario.dedupe !== false;
   let duplicates = 0;
   let pagesVisited = 0;
   let lastExtract: ExtractResult = { rows: [], blocksSeen: 0, missing: {} };
@@ -122,7 +125,7 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
       // The memory's notion of "the same row", minus its tolerance for bumps: nobody bumped a posting
       // in the three seconds between page one and page two, so two rows differing by their last word
       // are two rows.
-      const key = sameRowInThisRun(row);
+      const key = dedupe ? sameRowInThisRun(row) : undefined;
       if (key && collected.has(key)) {
         duplicates++;
         continue;

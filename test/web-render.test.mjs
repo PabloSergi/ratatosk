@@ -9,6 +9,7 @@ import {
   proxyCard,
   toCsv,
   downloadBar,
+  ruleEditor,
   rowsTable,
   stepsList,
   verdictBars,
@@ -275,4 +276,18 @@ test('nothing to hand over offers nothing to press', () => {
   assert.equal(downloadBar('scraper', 0), '', 'no rows, no buttons');
   assert.match(downloadBar('scraper', 12), /data-download-csv="scraper"/);
   assert.match(downloadBar('scraper', 12), /12 row/);
+});
+
+/**
+ * Dropping rows repeated within one walk is right almost everywhere and wrong somewhere: a price tick
+ * or a sensor reading is the same line meaning something new each time. So it is a choice, and the
+ * choice defaults to the thing almost everybody wants.
+ */
+test('the rule editor offers dedupe, on unless it was turned off', () => {
+  const onByDefault = ruleEditor('jobs', null);
+  assert.match(onByDefault, /id="ruleDedupe"[^>]*checked/, 'a scraper that never said anything gets it');
+
+  const turnedOff = ruleEditor('ticks', null, false, false);
+  assert.match(turnedOff, /id="ruleDedupe"/);
+  assert.doesNotMatch(turnedOff, /id="ruleDedupe"[^>]*checked/, 'and one that turned it off keeps it off');
 });

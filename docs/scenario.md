@@ -73,3 +73,20 @@ A run ends in one of three states, and two of them carry a reason:
 
 `empty` and `broken` are both visible, both carry evidence (URL, blocks seen, which fields went missing),
 and both are what later wakes the model up to rebuild the scenario.
+
+## `dedupe`
+
+```json
+{ "dedupe": false }
+```
+
+Whether rows collected twice in the same walk are handed over once. Absent means yes, which is what a
+list wants: a pager shifts under you while the walk is going and page two opens with what was last on
+page one, and a pinned posting sits on every page.
+
+Turn it off where identical rows are genuinely different things — a price tick, a sensor reading, the
+same line meaning something new every time it appears. How many were dropped is reported in the run's
+evidence, so a walk that keeps returning the same rows is visible rather than quietly shorter.
+
+This is about one run. Whether the same posting is handed over again on the NEXT run is
+[`remember`](#remember), and the two are independent.
