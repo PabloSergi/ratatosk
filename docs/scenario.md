@@ -90,3 +90,14 @@ evidence, so a walk that keeps returning the same rows is visible rather than qu
 
 This is about one run. Whether the same posting is handed over again on the NEXT run is
 [`remember`](#remember), and the two are independent.
+
+## A quiet day
+
+A scraper that remembers spends most of its life finding rows it has already handed over. That run
+comes back with nothing, and it is not a failure: the source answered, the rows were collected, and the
+memory did its job. Such a run is marked quiet — the card says **nothing new** in green, the history
+counts it as a working run, and the bot does not wake anybody about it.
+
+An empty run that is *not* quiet is a different thing and still worth looking at: the page rendered and
+had nothing on it, or the rule kept none of what came. Those two are told apart by where the emptiness
+came from, and never by the row count alone.

@@ -313,3 +313,15 @@ test('and a scraper that is merely broken is not', () => {
   );
   assert.doesNotMatch(rotted, /data-scraper-door/, 'a door that is not there is a button that teaches people to ignore buttons');
 });
+
+test('a card says "nothing new" rather than boasting of zero rows', () => {
+  const quiet = scraperCard(
+    { name: 'daily', url: 'https://jobs.example.com', fields: ['title'], pagination: 'link' },
+    { status: 'ok', at: new Date().toISOString(), rows: 0, inARow: 4, quiet: true, why: '178 of 178 had been seen before' },
+  );
+
+  assert.match(quiet, /class="state ok"/, 'a scraper that worked is not painted as a problem');
+  assert.match(quiet, /nothing new/);
+  assert.doesNotMatch(quiet, /0 rows/, '"0 rows" is what a broken scraper says');
+  assert.match(quiet, /seen before/, 'and why there was nothing new is still there to read');
+});

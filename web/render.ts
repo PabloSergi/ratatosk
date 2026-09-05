@@ -197,7 +197,15 @@ export function scraperCard(
     /** How many patterns its rule carries, if it has one. */
     sift?: number;
   },
-  standing?: { status: 'ok' | 'empty' | 'broken'; at: string; rows: number; inARow: number; why?: string; door?: boolean },
+  standing?: {
+    status: 'ok' | 'empty' | 'broken';
+    at: string;
+    rows: number;
+    inARow: number;
+    why?: string;
+    door?: boolean;
+    quiet?: boolean;
+  },
   /** A probe done just now, which is newer than any run and therefore what the card should say. */
   check?: { at: string; ok: boolean; note: string },
   /** How often it runs by itself, if it does. */
@@ -208,7 +216,11 @@ export function scraperCard(
   const how = check
     ? stateLine(check)
     : standing
-      ? `<div class="state ${standing.status === 'ok' ? 'ok' : 'bad'}">${badge(standing.status)} ${standing.rows} rows ` +
+      ? `<div class="state ${standing.status === 'ok' ? 'ok' : 'bad'}">${badge(standing.status)} ${
+          // A quiet run has no rows to boast of and nothing wrong with it: "0 rows" is what a broken
+          // scraper says, and this one worked.
+          standing.quiet ? 'nothing new' : `${standing.rows} rows`
+        } ` +
         `<span class="meta">${escapeHtml(new Date(standing.at).toLocaleString())}` +
         `${standing.inARow > 1 ? ` \u00b7 ${standing.inARow} runs in a row` : ''}</span>` +
         `${standing.why ? `<br><span class="${standing.status === 'ok' ? 'meta' : 'broken'}">${escapeHtml(standing.why)}</span>` : ''}</div>`

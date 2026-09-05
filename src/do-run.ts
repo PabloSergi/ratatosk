@@ -110,6 +110,7 @@ export async function runForAccount(userId: string, name: string, options: RunOp
     ms: Date.now() - started,
     ...(run.reason ? { why: run.reason.slice(0, 200) } : {}),
     ...(run.challenge ? { door: true } : {}),
+    ...(run.quiet ? { quiet: true } : {}),
     ...(isTelegramRobot(robot) ? {} : { proxy: robot.proxy ?? 'direct' }),
   });
 

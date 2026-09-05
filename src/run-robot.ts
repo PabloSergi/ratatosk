@@ -50,6 +50,7 @@ export async function runRobot(
       // broken robot — it is a quiet day, and it must not read like either.
       return {
         status: 'empty',
+        quiet: true,
         rows: [],
         pagesVisited: robot.channels.length,
         reason: [sifted.note, seen.note].filter(Boolean).join('; '),
@@ -85,7 +86,8 @@ export async function runRobot(
   const seen = await remember(sifted.rows, robot.remember, options.memory);
   const reason = [sifted.note, seen.note].filter(Boolean).join('; ');
   if (seen.rows.length === 0 && seen.note) {
-    return { ...run, status: 'empty', rows: [], reason };
+    // The same quiet day on a page walk: rows were found, and every one of them had been handed over.
+    return { ...run, status: 'empty', quiet: true, rows: [], reason };
   }
   return { ...run, rows: seen.rows, ...(reason ? { reason } : {}) };
 }

@@ -18,6 +18,15 @@ export interface RunResult {
   status: RunStatus;
   /** The page was a door meant for a person. The interface offers the one thing that opens it. */
   challenge?: boolean;
+  /**
+   * Nothing came back because everything that came had been handed over before.
+   *
+   * A scraper that remembers spends most of its life like this, and it is the opposite of a problem:
+   * the source answered, the rows were collected, and the memory did its job. Without this flag such a
+   * run is indistinguishable from a site that has gone empty, and a person is told fifteen scrapers
+   * are broken every morning until they stop reading the message.
+   */
+  quiet?: boolean;
   rows: Array<Record<string, string | null>>;
   pagesVisited: number;
   reason?: string;

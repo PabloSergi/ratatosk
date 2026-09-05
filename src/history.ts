@@ -24,6 +24,8 @@ export interface Run {
   proxy?: string;
   /** A door meant for a person, not a broken selector — the two need different answers. */
   door?: boolean;
+  /** Nothing new, rather than nothing at all: the scraper worked and had already handed it over. */
+  quiet?: boolean;
 }
 
 /** How many lines a file keeps. Old enough to show a trend, small enough to read in one gulp. */
@@ -99,6 +101,11 @@ export async function recent(file: string, options: { robot?: string; limit?: nu
  */
 export interface Standing {
   robot: string;
+  /**
+   * How it is. A quiet run — one that found rows and had handed them all over before — counts as ok:
+   * it is what a scraper with a memory does most days, and calling it empty makes a person start
+   * every morning by dismissing fifteen false alarms.
+   */
   status: Run['status'];
   at: string;
   rows: number;
@@ -106,6 +113,8 @@ export interface Standing {
   inARow: number;
   why?: string;
   door?: boolean;
+  /** It is ok because nothing new came, not because rows came. Worth saying on the card. */
+  quiet?: boolean;
 }
 
 export async function standing(file: string): Promise<Standing[]> {
@@ -115,25 +124,31 @@ export async function standing(file: string): Promise<Standing[]> {
   // Newest first: the first line for a robot is how it is now, and the ones after it extend the streak
   // until one of them disagrees. After that the older runs are history, not the present state.
   for (const run of runs) {
-    if (run.kind === 'build') continue; // a build is not how the robot is doing
+    if (run.kind === 'build') continue; // a build is not how the scraper is doing
+
+    // A quiet run is a working scraper with nothing new to say. Judged as itself it would read as
+    // empty, and a streak of them as broken — which is what happens to every scraper that remembers,
+    // every day, until nobody reads the warnings any more.
+    const status = run.quiet ? 'ok' : run.status;
     const seen = byRobot.get(run.robot);
     if (!seen) {
       byRobot.set(run.robot, {
         now: {
           robot: run.robot,
-          status: run.status,
+          status,
           at: run.at,
           rows: run.rows,
           inARow: 1,
           ...(run.why ? { why: run.why } : {}),
           ...(run.door ? { door: true } : {}),
+          ...(run.quiet ? { quiet: true } : {}),
         },
         streak: true,
       });
       continue;
     }
     if (!seen.streak) continue;
-    if (run.status === seen.now.status) seen.now.inARow++;
+    if (status === seen.now.status) seen.now.inARow++;
     else seen.streak = false;
   }
 

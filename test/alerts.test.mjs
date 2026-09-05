@@ -105,3 +105,18 @@ test('a message goes to the chat it was set up for, as plain text', async () => 
   assert.equal(sent.body.chat_id, '42');
   assert.equal(sent.body.text, 'a scraper broke');
 });
+
+/**
+ * The bot exists to say when something stops working. A scraper that remembers is quiet most days, and
+ * a bot that reports that is a bot people mute — after which it cannot tell them about the real thing.
+ */
+test('a quiet scraper is not something to wake anybody about', () => {
+  const quiet = { robot: 'daily', status: 'ok', at: '2026-09-05T13:35:00Z', rows: 0, inARow: 5, quiet: true };
+  assert.equal(whatToSay(quiet, { after: 3 }), undefined, 'nothing new is not a breakage');
+
+  // …and it is a recovery for somebody who was told it broke: the source answered again.
+  const told = { after: 3, told: { daily: { status: 'broken', inARow: 3, at: '2026-09-05T04:00:00Z' } } };
+  const back = whatToSay(quiet, told);
+  assert.ok(back);
+  assert.equal(back.kind, 'recovered');
+});

@@ -116,3 +116,33 @@ test('renaming in a history that does not exist yet is not an error', async () =
   const file = join(await mkdtemp(join(tmpdir(), 'ratatosk-history-')), 'nothing.jsonl');
   assert.equal(await renameInHistory(file, 'a', 'b'), 0, 'a scraper that never ran has nothing to carry');
 });
+
+/**
+ * A scraper that remembers spends most of its life finding rows it has already handed over. Judged as
+ * "empty" that reads as a problem, and a streak of quiet days reads as broken — so every morning would
+ * start with fifteen false alarms, and by the end of the week nobody reads them.
+ */
+test('a quiet day is a working scraper, not an empty one', async () => {
+  const file = join(await mkdtemp(join(tmpdir(), 'ratatosk-history-')), 'runs.jsonl');
+
+  await remember(file, run({ robot: 'daily', status: 'ok', rows: 178 }));
+  for (const nothing of [1, 2, 3]) {
+    void nothing;
+    await remember(file, run({ robot: 'daily', status: 'empty', rows: 0, quiet: true, why: '178 of 178 had been seen before' }));
+  }
+
+  const [now] = await standing(file);
+  assert.equal(now.status, 'ok', 'the source answered and the memory did its job');
+  assert.equal(now.quiet, true, 'and the card can say which kind of ok this is');
+  assert.equal(now.inARow, 4, 'a run that found rows and three quiet ones are one healthy streak');
+  assert.match(now.why, /seen before/);
+});
+
+test('an empty run that is not quiet is still a thing to look at', async () => {
+  const file = join(await mkdtemp(join(tmpdir(), 'ratatosk-history-')), 'runs.jsonl');
+  await remember(file, run({ robot: 'gone', status: 'empty', rows: 0, why: 'page rendered but matched nothing' }));
+
+  const [now] = await standing(file);
+  assert.equal(now.status, 'empty', 'nothing came from the source at all, which is different');
+  assert.equal(now.quiet, undefined);
+});
