@@ -1,4 +1,25 @@
 services:
+  # Where a run's rows are kept. Its own container and its own volume: an installation brings its
+  # database with it rather than expecting to find one, which is the difference between "clone and run"
+  # and "clone, then set up a database that something else on this machine is already using".
+  db:
+    image: postgres:17-alpine
+    container_name: ratatosk-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ratatosk}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ratatosk}
+      POSTGRES_DB: ${POSTGRES_DB:-ratatosk}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    # No port is published. Nothing outside this stack has any business reaching it.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-ratatosk} -d $${POSTGRES_DB:-ratatosk}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    mem_limit: 1g
+
   # The operator view. Bound to localhost on purpose: reach it over an SSH tunnel, not over the internet.
   web:
     build: .
@@ -6,6 +27,9 @@ services:
     container_name: ratatosk-web
     restart: unless-stopped
     command: ["node", "dist/web.js"]
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "127.0.0.1:5544:5544"
     environment:
@@ -19,6 +43,8 @@ services:
       RATATOSK_HISTORY: /app/history
       RATATOSK_MEMORY: /app/memory
       RATATOSK_RESULTS: /app/results
+      # With this set, runs are kept in Postgres; without it, in files. Nothing else decides.
+      RATATOSK_DB: postgres://${POSTGRES_USER:-ratatosk}:${POSTGRES_PASSWORD:-ratatosk}@db:5432/${POSTGRES_DB:-ratatosk}
       # debug | info | warn | error — one JSON line per event, read them with the logs service below.
       RATATOSK_LOG: ${RATATOSK_LOG:-info}
     volumes:
@@ -77,3 +103,4 @@ services:
 volumes:
   browser-profiles:
   account-secrets:
+  db-data:

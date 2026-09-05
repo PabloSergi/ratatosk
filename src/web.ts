@@ -53,7 +53,7 @@ import { liveLog, liveStream, nextFrame, viewerPage } from './live-view.js';
 import { InputError } from './errors.js';
 import { failure, info, log, warn } from './log.js';
 import { alertsFileFor, DEFAULT_AFTER, readAlerts, tell, viewAlerts, whatToSay, writeAlerts } from './alerts.js';
-import { forgetResults, keepResult, keptRuns, readResult, resultsDirFor } from './results.js';
+import { forgetResults, keepResult, keptRuns, moveResults, readResult } from './results.js';
 import { historyFileFor, recent, remember, renameInHistory, standing } from './history.js';
 import {
   activeConnection,
@@ -844,7 +844,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     const nowMemory = memoryFileFor(user.id, renamed.name);
     await rename(wasMemory, nowMemory).catch(() => undefined); // a scraper that never remembered has no file
 
-    await rename(resultsDirFor(user.id, from), resultsDirFor(user.id, renamed.name)).catch(() => undefined);
+    await moveResults(user.id, from, renamed.name).catch(() => undefined);
     const runs = await renameInHistory(historyFileFor(user.id), from, renamed.name);
 
     log('info', 'scraper renamed', { from, to: renamed.name, user: user.id, runs });

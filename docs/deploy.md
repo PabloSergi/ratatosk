@@ -13,6 +13,15 @@ docker compose build          # a few minutes and ~1 GB: the browser is baked in
 docker compose up -d web logs
 ```
 
+The stack starts its own Postgres, in its own container with its own volume, and publishes no port for
+it. An installation brings its database with it rather than expecting to find one — the difference
+between "clone and run" and "clone, then set up a database something else on this machine is already
+using". What a run brought back is kept there; everything else is still files next to the compose file.
+
+Run it without Docker and `RATATOSK_DB` is simply unset, and runs are kept in files instead. Same code,
+no database server to install first. That variable is the only thing that decides, because a service
+that quietly writes somewhere other than where you think it does is a service you cannot back up.
+
 Check it came up before opening anything:
 
 ```bash
@@ -84,7 +93,8 @@ Scrapers, run history, accounts and browser profiles live in volumes and folders
 file, so they survive the rebuild. What is worth backing up is small and boring:
 
 ```bash
-tar czf ratatosk-backup.tgz robots/ history/ memory/ results/ secrets/ .env
+docker compose exec -T db pg_dump -U ratatosk ratatosk | gzip > ratatosk-db.sql.gz
+tar czf ratatosk-backup.tgz robots/ history/ memory/ secrets/ .env
 ```
 
 `secrets/` holds accounts, the token key and any Telegram session — treat that tarball the way you

@@ -15,6 +15,9 @@ let dir;
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'ratatosk-results-'));
   process.env.RATATOSK_RESULTS = dir;
+  // These are about the file store, so they say so: with a database configured the same functions
+  // would write there instead, and this file would be testing the wrong half of the code.
+  delete process.env.RATATOSK_DB;
 });
 
 const load = async () => import('../src/results.ts');
