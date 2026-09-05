@@ -105,7 +105,9 @@ export async function buildSift(options: SiftOptions): Promise<SiftBuild> {
   const usage = { promptTokens: 0, completionTokens: 0, calls: 0 };
   const attempts: SiftAttempt[] = [];
   const ask = options.ask ?? httpAsk(options);
-  const maxSteps = options.maxSteps ?? 3;
+  // Four rather than three: the rule is written once and runs for months, and the difference between
+  // an accepted rule and none at all is worth one more call.
+  const maxSteps = options.maxSteps ?? 4;
 
   if (options.sample.length === 0) {
     return { attempts, usage, reason: 'there were no messages to learn from' };
@@ -181,16 +183,28 @@ export async function buildSift(options: SiftOptions): Promise<SiftBuild> {
         attempts[attempts.length - 1]!.note =
           `it keeps ${result.kept}, but ${missed.wrong} of ${missed.checked} it threw away were what was asked for`;
 
+        // Which pattern did it, said outright. "You lost some postings" is a complaint; "this drop ate
+        // this posting" is a thing to fix, and the difference is whether the next attempt is a guess.
+        const blamed = missed.examples.map((example) => {
+          const guilty = (rule.drop ?? []).find((pattern) => {
+            try {
+              return new RegExp(pattern, 'iu').test(example);
+            } catch {
+              return false;
+            }
+          });
+          return guilty ? `drop "${guilty}" threw away: ${example}` : `thrown away by no keep matching: ${example}`;
+        });
+
         messages.push({ role: 'assistant', content: reply.content });
         messages.push({
           role: 'user',
           content:
-            `${attempts[attempts.length - 1]!.note}.\n` +
-            `These were thrown away and should have been kept: ${missed.examples.join(' | ')}\n` +
-            `Widen the keeps: people do not write one sentence pattern. The same posting appears as ` +
-            `"we need", "urgently need", "looking for", "vacancy:", "recruiting", with emoji and ` +
-            `capitals in between, and the job word may come before the verb. Match on the job and the ` +
-            `direction rather than on a word order.`,
+            `${attempts[attempts.length - 1]!.note}.\n${blamed.join('\n')}\n` +
+            `Fix whichever is the cause. A drop that ate a wanted message needs a guard — put ` +
+            `"^(?![\\s\\S]*(words that mean it IS wanted))" in front of it, so it only fires where ` +
+            `nothing suggests the thing asked for. A message nothing kept needs wider keeps: people do ` +
+            `not write one wording, and the job word may come before the verb.`,
         });
         continue;
       }

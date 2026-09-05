@@ -329,3 +329,37 @@ test('a guarded drop spares what merely mentions the noise', () => {
   assert.equal(result.kept, 1);
   assert.match(result.rows[0].text, /hiring a chatter/, 'a posting that mentions traffic is a posting');
 });
+
+/**
+ * "You lost some postings" is a complaint. "This drop ate this posting" is a thing to fix. The
+ * difference decides whether the next attempt is a repair or a guess.
+ */
+test('the complaint names the drop that ate the posting', async () => {
+  const sample = [
+    { text: 'We have traffic and we are hiring a chatter, shifts 8-16' },
+    { text: 'REDDIT TRAFFIC — our traffic turns posts into money' },
+    { text: 'Vacancy: operator, evening shift' },
+  ];
+
+  const answers = [
+    JSON.stringify({ keep: [], drop: ['traffic'] }), // eats the posting that merely mentions it
+    JSON.stringify({ keep: [], drop: ['^(?![\\s\\S]*(hiring|vacancy))[\\s\\S]*traffic'] }),
+  ];
+  let asked = 0;
+  const said = [];
+  const ask = async (messages) => {
+    const last = messages[messages.length - 1].content;
+    said.push(last);
+    if (/should have been kept/.test(last)) return { content: asked++ === 0 ? '1' : 'none' };
+    if (/do NOT match/.test(last)) return { content: 'none' };
+    return { content: answers.shift() ?? '{}' };
+  };
+
+  const built = await buildSift({ sample, want: 'job postings', apiKey: 'x', model: 'm', baseUrl: 'https://nowhere', ask });
+
+  const complaint = said.find((message) => /threw away:/.test(message));
+  assert.ok(complaint, 'the model has to be told which pattern did it');
+  assert.match(complaint, /drop "traffic" threw away/);
+  assert.match(complaint, /needs a guard/);
+  assert.ok(built.sift, 'and the guarded rule is accepted');
+});
