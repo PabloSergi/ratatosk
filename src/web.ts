@@ -350,6 +350,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     const takeover = await startTakeover({
       userId: user.id,
       url: String(body['url'] ?? ''),
+      ...(body['scraper'] ? { scraper: String(body['scraper']) } : {}),
       profileDir: join(process.env['RATATOSK_PROFILES'] ?? 'profiles', key.replace('|', '--')),
       ...(proxy ? { proxy: await toRunningBrowser(proxy) } : {}),
     });
@@ -462,8 +463,23 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     }
   },
 
-  '/api/browser/release': async (_body, user) => {
+  /**
+   * Done with the browser. If the door was opened from a scraper's card, that scraper is put in line
+   * straight away: somebody who has just passed a check wants to see whether it worked, and telling
+   * them to go and press Run is asking them to finish a job the product could finish itself.
+   */
+  '/api/browser/release': async (body, user) => {
     for (const takeover of takeoversOf(user.id)) await stopTakeover(takeover.token);
+
+    const scraper = String(body['scraper'] ?? '');
+    // Checked whatever the installation can do next: a name that is not a scraper is a mistake worth
+    // saying out loud, and saying it only where there is a queue would hide it on half the installs.
+    if (scraper) await loadRobot(scraper, robotsDirFor(user.id));
+
+    if (scraper && usingQueue()) {
+      await enqueue({ userId: user.id, scraper, because: 'asked' });
+      return { released: true, queued: scraper };
+    }
     return { released: true };
   },
 
@@ -1180,8 +1196,21 @@ const server = createServer((request: IncomingMessage, response: ServerResponse)
     // token is the credential, the same as it is for the frames.
     if (what === 'done') {
       liveLog('done, closing', { token: (token ?? '').slice(0, 6) });
+      const opened = findTakeover(token!);
       void stopTakeover(token!).then(
-        () => response.writeHead(200, { 'content-type': 'application/json' }).end('{"saved":true}'),
+        async () => {
+          // Somebody who has just passed a check wants to know whether it worked. Telling them to go
+          // back and press Run is asking them to finish a job the product can finish itself.
+          let queued = false;
+          if (opened?.scraper && usingQueue()) {
+            queued = await enqueue({ userId: opened.userId, scraper: opened.scraper, because: 'asked' })
+              .then(() => true)
+              .catch(() => false);
+          }
+          response
+            .writeHead(200, { 'content-type': 'application/json' })
+            .end(JSON.stringify({ saved: true, queued: queued ? opened?.scraper : undefined }));
+        },
         () => response.writeHead(500, { 'content-type': 'application/json' }).end('{"saved":false}'),
       );
       return;

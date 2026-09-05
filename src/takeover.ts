@@ -26,6 +26,8 @@ export interface Takeover {
   vncPort: number;
   webPort: number;
   url: string;
+  /** Whose door this is, when it was opened from a scraper's card. Runs when the session is saved. */
+  scraper?: string;
   startedAt: number;
   expiresAt: number;
   session: BrowserSession;
@@ -48,6 +50,7 @@ export function takeoversOf(userId: string): Takeover[] {
 export async function startTakeover(input: {
   userId: string;
   url: string;
+  scraper?: string;
   profileDir: string;
   proxy?: { server: string; username?: string; password?: string };
 }): Promise<Takeover> {
@@ -125,6 +128,7 @@ export async function startTakeover(input: {
     vncPort,
     webPort,
     url: input.url,
+    ...(input.scraper ? { scraper: input.scraper } : {}),
     startedAt: Date.now(),
     expiresAt: Date.now() + LIFETIME_MS,
     session,

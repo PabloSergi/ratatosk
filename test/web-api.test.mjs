@@ -358,6 +358,21 @@ test('a takeover cannot borrow a proxy the account does not have', async () => {
   assert.match(borrowed.body.error, /no such proxy/);
 });
 
+/**
+ * Passing a check by hand and then being told to go and press Run is asking somebody to finish a job
+ * the product can finish itself — and it is the moment they most want to know whether it worked.
+ */
+test('a door opened from a card runs that scraper when it is saved', async () => {
+  const named = await call('/api/browser/release', { scraper: 'no-such-scraper' });
+  assert.equal(named.status, 400, 'a name that is not a scraper is a mistake worth saying out loud');
+  assert.match(named.body.error, /no robot named/);
+
+  // …and releasing with no scraper named is still just releasing.
+  const plain = await call('/api/browser/release', {});
+  assert.equal(plain.status, 200);
+  assert.equal(plain.body.released, true);
+});
+
 test('releasing when nothing is open is not an error', async () => {
   const released = await call('/api/browser/release', {});
   assert.equal(released.status, 200);

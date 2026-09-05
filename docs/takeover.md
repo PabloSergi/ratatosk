@@ -10,6 +10,14 @@ A tab opens with the browser running on the server. You do the thing by hand. Wh
 behind — a cookie, a session — stays in the profile that scraper uses, so its next run arrives as a
 returning visitor rather than as a stranger.
 
+## What happens when you save
+
+Pressing **Save and close** writes the profile — that is the whole point of the session, and the cookie
+the site left behind is what the scraper will carry from then on. If the door was opened from a
+scraper's card, that scraper is put in line to run straight away: somebody who has just passed a check
+wants to know whether it worked, and being told to go back and press Run is being asked to finish a job
+the product could finish itself.
+
 ## Where the button is
 
 Two places, one act. In the build form, for a site you are setting up: paste the address, choose the way

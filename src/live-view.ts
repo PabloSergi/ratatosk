@@ -315,7 +315,12 @@ document.getElementById('done').addEventListener('click', async (event) => {
   button.textContent = 'saving…';
   const answer = await fetch('/live/' + token + '/done', { method: 'POST' }).catch(() => undefined);
   const saved = answer && answer.ok;
-  hint.textContent = saved ? 'saved — this tab can be closed' : 'could not save; try Close the browser on the other tab';
+  const said = saved ? await answer.json().catch(() => ({})) : {};
+  hint.textContent = saved
+    ? said.queued
+      ? 'saved — ' + said.queued + ' is running now; close this tab and watch its card'
+      : 'saved — this tab can be closed'
+    : 'could not save; try Close the browser on the other tab';
   button.textContent = saved ? 'saved' : 'failed';
   if (saved) screen.style.opacity = '0.35';
 });

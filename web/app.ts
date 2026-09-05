@@ -737,8 +737,8 @@ el('keyCreate').addEventListener('click', async () => {
  * and remember which way out that scraper goes, and getting the proxy wrong means passing a door for
  * a profile the scraper does not use.
  */
-async function openDoor(url: string, proxy: string | undefined, where: string): Promise<void> {
-  const session = await api.takeover(url, proxy);
+async function openDoor(url: string, proxy: string | undefined, where: string, scraper?: string): Promise<void> {
+  const session = await api.takeover(url, proxy, scraper);
   window.open(session.view, '_blank', 'noreferrer');
   show(where, true);
   el(where).innerHTML =
@@ -1020,7 +1020,7 @@ document.addEventListener('click', async (event) => {
       const done = busy(pressed, 'opening');
       try {
         answerIn(id, '<div id="doorNote" class="meta"></div>');
-        await openDoor(scraper.url, scraper.proxy, 'doorNote');
+        await openDoor(scraper.url, scraper.proxy, 'doorNote', scraper.name);
       } finally {
         done();
       }

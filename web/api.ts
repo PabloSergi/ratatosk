@@ -160,9 +160,10 @@ export const api = {
     ),
 
   /** Open the scraper's own browser on a screen this account can reach, and hand it to the person. */
-  takeover: (url: string, proxy?: string) =>
+  takeover: (url: string, proxy?: string, scraper?: string) =>
     post<{ view: string; desktop: string; vncPort: number; url: string; expiresAt: string }>('/api/browser/takeover', {
       url,
+      ...(scraper ? { scraper } : {}),
       proxy,
     }),
   releaseBrowser: () => post<{ released: true }>('/api/browser/release', {}),
