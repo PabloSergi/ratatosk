@@ -879,6 +879,18 @@ document.addEventListener('click', async (event) => {
 
   const actions: Array<[string, string, (id: string) => Promise<void>]> = [
     ['data-run', 'scrapers', async (id) => runScraper(id, pressed)],
+    ['data-open-result', 'result', async (id) => {
+      const at = pressed.dataset['at'] ?? '';
+      const kept = await api.keptResult(id, at);
+      carried = { name: id, rows: kept.rows };
+      result(
+        `${id} — ${new Date(kept.at).toLocaleString()}`,
+        `${badge(kept.status as 'ok')} <b>${kept.rows.length} rows</b> from ${kept.pagesVisited} page(s), kept from that run` +
+          (kept.reason ? `<pre>${escapeHtml(kept.reason)}</pre>` : '') +
+          downloadBar(id, kept.rows.length) +
+          rowsTable(kept.rows),
+      );
+    }],
     ['data-download-csv', 'result', async (id) => handOver(carried.rows, id, 'csv')],
     ['data-download-json', 'result', async (id) => handOver(carried.rows, id, 'json')],
     ['data-restore', 'scrapers', async (id) => {
@@ -933,8 +945,11 @@ document.addEventListener('click', async (event) => {
 
       panel.hidden = false;
       panel.innerHTML = '<span class="muted">reading…</span>';
-      const { runs } = await api.history(id);
-      panel.innerHTML = scraperHistory(runs);
+      const [{ runs }, { kept }] = await Promise.all([
+        api.history(id),
+        api.keptRuns(id).catch(() => ({ kept: [] })),
+      ]);
+      panel.innerHTML = scraperHistory(runs, id, kept.map((one) => one.at));
     }],
     ['data-scraper-check', 'scrapers', async (id) => {
       const done = spinning(pressed);

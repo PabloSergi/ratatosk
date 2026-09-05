@@ -84,7 +84,7 @@ Scrapers, run history, accounts and browser profiles live in volumes and folders
 file, so they survive the rebuild. What is worth backing up is small and boring:
 
 ```bash
-tar czf ratatosk-backup.tgz robots/ history/ memory/ secrets/ .env
+tar czf ratatosk-backup.tgz robots/ history/ memory/ results/ secrets/ .env
 ```
 
 `secrets/` holds accounts, the token key and any Telegram session — treat that tarball the way you
@@ -107,7 +107,7 @@ A tunnel does not survive a reboot; a `tailscale serve` does.
   runaway page drags the whole host into swap instead of the container dying alone.
 - `shm_size: 1g`, because Chromium crashes on Docker's default 64 MB `/dev/shm`.
 - The Docker socket that Dozzle reads is mounted **read-only**, and its port is on loopback.
-- `robots/`, `history/` and `memory/` are volumes: they are the product's data, not a cache.
+- `robots/`, `history/`, `memory/` and `results/` are volumes: they are the product's data, not a cache.
 
 ## As an MCP server
 

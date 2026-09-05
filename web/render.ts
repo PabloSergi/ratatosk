@@ -345,16 +345,27 @@ export function accountCard(account: {
  * THIS one been doing?" — turned out to be the only one anybody asked of it. So it lives where the
  * question is asked, and says nothing the card already says: no name in every line, no kind.
  */
-export function scraperHistory(runs: Array<{ at: string; kind: string; status: 'ok' | 'empty' | 'broken'; rows: number; pages?: number; ms: number; why?: string }>): string {
+export function scraperHistory(
+  runs: Array<{ at: string; kind: string; status: 'ok' | 'empty' | 'broken'; rows: number; pages?: number; ms: number; why?: string }>,
+  scraper = '',
+  kept: string[] = [],
+): string {
   if (!runs.length) return '<div class="meta muted">nothing yet — press Run, or the arrow for a quick look</div>';
 
+  const has = new Set(kept);
   return `<table class="runs">${runs
     .map(
       (run) => `
         <tr>
           <td class="mono">${escapeHtml(new Date(run.at).toLocaleString())}</td>
           <td>${badge(run.status)}${run.kind === 'run' ? '' : ` <span class="kind">${escapeHtml(run.kind)}</span>`}</td>
-          <td class="mono">${run.rows} rows${run.pages ? ` · ${run.pages}p` : ''}</td>
+          <td class="mono">${
+            // A run whose rows are still here is a run you can open. One whose rows have aged out says
+            // how many there were and nothing more, rather than offering a button that apologises.
+            has.has(run.at)
+              ? `<button class="inline" data-open-result="${escapeHtml(scraper)}" data-at="${escapeHtml(run.at)}">${run.rows} rows</button>`
+              : `${run.rows} rows`
+          }${run.pages ? ` · ${run.pages}p` : ''}</td>
           <td class="mono">${Math.round(run.ms / 100) / 10}s</td>
           <td class="meta">${run.why ? escapeHtml(run.why) : ''}</td>
         </tr>`,

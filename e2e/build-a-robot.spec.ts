@@ -292,3 +292,31 @@ test('the command line exits non-zero when a scrape fails', async () => {
   expect(answer.code).toBe(1);
   expect(answer.stdout).toContain('"status": "broken"');
 });
+
+test('what a run brought back can be opened again from its history', async ({ page }) => {
+  await page.goto('/');
+  await page.fill('#authEmail', `tenth-${Date.now()}@example.com`);
+  await page.fill('#authPassword', 'a-long-enough-password');
+  await page.click('#authRegister');
+
+  await page.fill('#url', SITE);
+  await page.fill('#name', 'keeper');
+  await page.click('#draft');
+  await expect(page.locator('#resultTitle')).toContainText('keeper', { timeout: 60_000 });
+
+  const card = page.locator('.item', { hasText: 'keeper' });
+  await card.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(page.locator('#result')).toContainText('page(s)', { timeout: 60_000 });
+
+  // Close the answer by asking a different question, the way a person closes a tab.
+  await page.reload();
+  await expect(page.locator('#result')).not.toContainText('Madrid');
+
+  // …and yesterday's work is still there, under the run that produced it.
+  await card.locator('button[data-scraper-history]').click();
+  await card.locator('button[data-open-result]').first().click();
+
+  await expect(page.locator('#result')).toContainText('kept from that run', { timeout: 30_000 });
+  await expect(page.locator('#result')).toContainText('Madrid');
+  await expect(page.getByRole('button', { name: 'Download CSV' })).toBeVisible();
+});

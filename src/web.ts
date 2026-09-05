@@ -53,6 +53,7 @@ import { liveLog, liveStream, nextFrame, viewerPage } from './live-view.js';
 import { InputError } from './errors.js';
 import { failure, info, log, warn } from './log.js';
 import { alertsFileFor, DEFAULT_AFTER, readAlerts, tell, viewAlerts, whatToSay, writeAlerts } from './alerts.js';
+import { forgetResults, keepResult, keptRuns, readResult, resultsDirFor } from './results.js';
 import { historyFileFor, recent, remember, renameInHistory, standing } from './history.js';
 import {
   activeConnection,
@@ -193,8 +194,11 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
       }),
     );
 
+    // One timestamp for both, because they are two halves of the same event: the line in the history
+    // and the rows it is about have to be findable from each other.
+    const at = new Date().toISOString();
     await remember(historyFileFor(user.id), {
-      at: new Date().toISOString(),
+      at,
       robot: robot.name,
       kind: 'run',
       status: run.status,
@@ -205,6 +209,16 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
       ...(run.challenge ? { door: true } : {}),
       ...(isTelegramRobot(robot) ? {} : { proxy: robot.proxy ?? 'direct' }),
     });
+
+    // Kept so that "I ran it yesterday" is answerable today. Only the rows: the verdict and the reason
+    // are in the history already.
+    await keepResult(user.id, robot.name, {
+      at,
+      status: run.status,
+      rows: run.rows,
+      pagesVisited: run.pagesVisited,
+      ...(run.reason ? { reason: run.reason } : {}),
+    }).catch(() => undefined);
 
     // A scraper that says when it breaks says it to whoever opens the screen; one on a schedule breaks
     // at four in the morning and is found on Friday. So a run is also where the owner gets told —
@@ -672,8 +686,9 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     const name = String(body['name'] ?? '');
     const robot = await loadRobot(name, dir);
     const removed = await deleteRobot(name, dir);
-    // Its memory of what it has seen goes too: keeping it would silence a robot recreated later.
+    // Its memory of what it has seen goes too: keeping it would silence a scraper recreated later.
     await rm(memoryFileFor(user.id, name), { force: true }).catch(() => undefined);
+    await forgetResults(user.id, name).catch(() => undefined);
 
     if (isTelegramRobot(robot)) return { deleted: name, removed, forgotten: 0 };
 
@@ -781,6 +796,18 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     return { sent: true };
   },
 
+  /** What this scraper brought back on its last few runs — the list, without the rows. */
+  '/api/results': async (body, user) => ({
+    kept: await keptRuns(user.id, String(body['name'] ?? '')),
+  }),
+
+  /** One kept run, rows and all, so yesterday's work can be looked at and taken away today. */
+  '/api/results/get': async (body, user) => {
+    const kept = await readResult(user.id, String(body['name'] ?? ''), String(body['at'] ?? ''));
+    if (!kept) throw new InputError('nothing kept from that run — it may have aged out');
+    return kept;
+  },
+
   /** What has been deleted and can still be had back. */
   '/api/robot/deleted': async (_body, user) => ({ deleted: await deletedRobots(robotsDirFor(user.id)) }),
 
@@ -811,6 +838,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     const nowMemory = memoryFileFor(user.id, renamed.name);
     await rename(wasMemory, nowMemory).catch(() => undefined); // a scraper that never remembered has no file
 
+    await rename(resultsDirFor(user.id, from), resultsDirFor(user.id, renamed.name)).catch(() => undefined);
     const runs = await renameInHistory(historyFileFor(user.id), from, renamed.name);
 
     log('info', 'scraper renamed', { from, to: renamed.name, user: user.id, runs });

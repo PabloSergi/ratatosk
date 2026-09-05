@@ -130,6 +130,13 @@ export const api = {
   deletedScrapers: () =>
     post<{ deleted: Array<{ file: string; name: string; kind: string; at: string }> }>('/api/robot/deleted'),
   restoreScraper: (file: string) => post<{ restored: string }>('/api/robot/restore', { file }),
+  keptRuns: (name: string) =>
+    post<{ kept: Array<{ at: string; status: string; rows: number; reason?: string }> }>('/api/results', { name }),
+  keptResult: (name: string, at: string) =>
+    post<{ at: string; status: string; rows: Array<Record<string, string | null>>; pagesVisited: number; reason?: string }>(
+      '/api/results/get',
+      { name, at },
+    ),
   renameScraper: (name: string, to: string) =>
     post<{ name: string; was: string; runs: number }>('/api/robot/rename', { name, to }),
   checkScraper: (name: string) =>

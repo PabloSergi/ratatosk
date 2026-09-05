@@ -22,7 +22,7 @@ npm install && npm run build && npx patchright install chromium
 npm run look  -- "https://books.toscrape.com/catalogue/page-1.html"   # what a model would be shown
 npm run draft -- "https://books.toscrape.com/catalogue/page-1.html"   # a proven scenario, no model
 npm run run   -- examples/books.json                                  # run a finished scenario
-npm test                                                              # 159 tests, no network
+npm test                                                              # 202 tests, no network
 ```
 
 `draft` needs no API key: for an ordinary list it finds the rows itself. A key is only needed for pages
@@ -73,6 +73,16 @@ keep, patterns that drop, fields read out of free text. The platform then measur
 real messages before accepting it: a rule that keeps everything has decided nothing, a rule whose drops
 eat its own finds is a leak, and a rule that keeps the wrong things is caught by reading its output back
 to the model. At run time it is regular expressions over text — no model, no per-message cost.
+
+**What a run brought back, kept.** Press Run, close the tab, come back tomorrow: the rows of the last
+few runs are on disk, openable from the scraper's own history and downloadable as CSV or JSON. A file
+per run and no database — nothing to install, nothing to migrate, and a backup is `tar`. It forgets the
+old ones on purpose, because a scraper on a schedule would otherwise fill a disk with pages nobody will
+open.
+
+**Duplicates.** A pager shifts under you and page two opens with what was last on page one; a pinned
+posting sits on every page. Rows collected twice in one walk are handed over once, and the count is
+reported rather than swallowed — a walk that keeps returning the same rows is a pager going nowhere.
 
 **Memory.** The same posting gets reposted for weeks. A scraper can remember what it has already handed
 over — by link, or by a fingerprint of the text that survives a "⬆️ up" appended to the end — and return
@@ -133,9 +143,9 @@ esbuild into a few kilobytes of static files. The front imports the engine's own
 breaks the build instead of breaking the screen.
 
 ```
-src/     engine, agent, rules, memory, MCP server, telegram, accounts, web service
+src/     engine, agent, rules, memory, results, alerts, MCP server, telegram, accounts, web service
 web/     the operator view: index.html, styles.css, api.ts, render.ts, app.ts
-test/    159 tests over the sources — engine, API, markup, and the wiring between them
+test/    202 tests over the sources — engine, API, markup, and the wiring between them
 e2e/     the whole product in a real browser, against a fixture site
 docs/    scenario format, build loop, MCP, telegram, accounts, deploy, n8n, takeover
 ```
