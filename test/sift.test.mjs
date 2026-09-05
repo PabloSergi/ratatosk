@@ -297,3 +297,35 @@ test('a rule that throws away what was asked for is refused, however right the r
   assert.ok(built.sift, 'and the wider rule is accepted');
   assert.ok(built.sift.keep.length > 1);
 });
+
+/**
+ * The shape a channel that is mostly what you want needs: keep everything, drop the noise. It was
+ * being refused by the collisions check — with no keeps to disagree with, every drop looked like a
+ * keep and a drop fighting over a row, and a rule was punished for doing exactly what it said.
+ */
+test('a rule that keeps everything except the noise is a rule', () => {
+  const stream = [
+    { text: 'We are hiring a chat operator, evening shifts' },
+    { text: 'Vacancy: team lead, remote, paid twice a month' },
+    { text: 'Agency opening an intake of operators' },
+    { text: 'REDDIT TRAFFIC — our traffic turns posts into money, daily posting' },
+    { text: 'anyone up for a walk' },
+  ];
+
+  const result = sift(stream, { keep: [], drop: ['our traffic', 'up for a walk'] });
+  assert.equal(result.kept, 3);
+  assert.deepEqual(result.collisions, [], 'nothing was fought over: there were no keeps to fight');
+  assert.equal(judgeSift(result, stream.length).good, true, 'and the rule stands');
+});
+
+test('a guarded drop spares what merely mentions the noise', () => {
+  const stream = [
+    { text: 'We have traffic and we are hiring a chatter, shifts 8-16' },
+    { text: 'REDDIT TRAFFIC — our traffic turns posts into money' },
+  ];
+
+  // The guard: fire only where nothing in the message suggests hiring.
+  const result = sift(stream, { keep: [], drop: ['^(?![\\s\\S]*(hiring|shifts))[\\s\\S]*traffic'] });
+  assert.equal(result.kept, 1);
+  assert.match(result.rows[0].text, /hiring a chatter/, 'a posting that mentions traffic is a posting');
+});

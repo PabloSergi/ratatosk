@@ -103,7 +103,10 @@ export function sift(rows: Row[], rule: Sift): SiftResult {
       if (examples.dropped.length < 3) examples.dropped.push(text.replace(/\s+/g, ' ').slice(0, 90));
       // Refused outright is a decision; merely unclaimed is a question, and a question can be asked.
       if (!refused) unclaimed.push(row);
-      if (wanted && refused) {
+      // A collision is a keep and a drop disagreeing about one row. With no keeps at all there is
+      // nothing to disagree with: "keep everything except this" is a legitimate shape of rule, and
+      // counting each of its drops as a collision refuses it for doing exactly what it says.
+      if (keep.length > 0 && wanted && refused) {
         collisions.push(row);
         if (examples.collisions.length < 3) examples.collisions.push(text.replace(/\s+/g, ' ').slice(0, 110));
       }
