@@ -125,9 +125,13 @@ tailnet, never as a public address.
 paginate_probe → save`) and consuming data (`scrapers`, `fetch`). The consuming side never mentions a
 selector.
 
-**HTTP**, for anything that already schedules things. There is deliberately no scheduler inside: a scraper
-is one call, and cron, n8n or your own code already know how to retry and deliver.
-See [docs/n8n.md](docs/n8n.md).
+**A schedule**, per scraper: by hand, every fifteen minutes, hourly, daily. What is due is claimed
+atomically in Postgres so two workers make one run, the next time is set from now so a worker that was
+down does not catch up twelve times over, and a lock in Redis keeps one scraper from walking a site in
+two browsers at once. Nothing retries: a queue that retries a broken selector has broken it four times.
+
+**HTTP**, for anything that already schedules things — cron, n8n, your own code. The schedule above is
+for people who do not want to run one; the seam is still one call. See [docs/n8n.md](docs/n8n.md).
 
 ```bash
 curl -H "authorization: Bearer rtk_…" -H 'content-type: application/json' \

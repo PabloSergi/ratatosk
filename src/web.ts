@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readdir, readFile, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildWithModel } from './agent.js';
-import { BrowserPool } from './browsers.js';
+import { makePool, poolKey, runForAccount } from './do-run.js';
 import {
   AuthError,
   countUsers,
@@ -31,7 +31,7 @@ import {
   restoreRobot,
   saveRobot,
 } from './robots.js';
-import type { SiteRule } from './rules.js';
+import { loadRules, type SiteRule } from './rules.js';
 import {
   addProxy,
   findProxy,
@@ -54,6 +54,9 @@ import { InputError } from './errors.js';
 import { failure, info, log, warn } from './log.js';
 import { alertsFileFor, DEFAULT_AFTER, readAlerts, tell, viewAlerts, whatToSay, writeAlerts } from './alerts.js';
 import { forgetResults, keepResult, keptRuns, moveResults, readResult } from './results.js';
+import { forgetSchedule, moveSchedule, schedulesFor, setSchedule } from './schedule.js';
+import { enqueue, usingQueue, waiting } from './queue.js';
+import { usingDatabase } from './db.js';
 import { historyFileFor, recent, remember, renameInHistory, standing } from './history.js';
 import {
   activeConnection,
@@ -99,21 +102,7 @@ let rules: SiteRule[] = [];
  * A browser per account, capped so a busy server does not fill up with them. Work inside one account
  * is serialised — one browser, one page — while different accounts run side by side.
  */
-const pool = new BrowserPool({
-  max: Number(process.env['RATATOSK_MAX_BROWSERS'] ?? 3),
-  open: async (profileDir, key) => {
-    const [userId, proxyId] = key.split('|');
-    const proxy = proxyId ? await findProxy(proxiesFileFor(userId!), proxyId) : undefined;
-    return openBrowser({ profileDir, ...(proxy ? { proxy: await toRunningBrowser(proxy) } : {}) });
-  },
-  profileDir: (key) => join(process.env['RATATOSK_PROFILES'] ?? 'profiles', key.replace('|', '--')),
-});
-
-/**
- * A browser is bound to an account AND to the address it goes out through: switching proxy mid-profile
- * would mix two identities in one cookie jar, which is exactly what a proxy is meant to avoid.
- */
-const poolKey = (userId: string, proxyId?: string): string => (proxyId ? `${userId}|${proxyId}` : userId);
+const pool = makePool();
 
 interface Caller {
   id: string;
@@ -145,99 +134,12 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
 
   '/api/robots': async (_body, user) => ({ robots: await listRobots(robotsDirFor(user.id)) }),
 
-  '/api/run': async (body, user) => {
-    const robot = await loadRobot(String(body['name']), robotsDirFor(user.id));
-    const maxPages = Number(body['maxPages'] ?? 0) || undefined;
-    const telegramSession = isTelegramRobot(robot) ? await sessionForRobot(user.id, robot.account) : undefined;
-    const started = Date.now();
-
-    // A robot only gets a way to ask if its own rule says it needs one — and it is this account's
-    // connection that pays for it, not the server's.
-    const needsJudge = Boolean((robot as { sift?: { judge?: unknown } }).sift?.judge);
-    const connection = needsJudge ? await runConnection(settingsFileFor(user.id)) : undefined;
-    const ask = connection
-      ? async (prompt: string): Promise<string> => {
-          const answer = await fetch(`${connection.baseUrl}/chat/completions`, {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              authorization: `Bearer ${connection.key}`,
-              'x-title': 'ratatosk',
-            },
-            body: JSON.stringify({
-              model: connection.model,
-              messages: [{ role: 'user', content: prompt }],
-              temperature: 0,
-            }),
-          });
-          if (!answer.ok) throw new Error(`the model answered ${answer.status}`);
-          const body = (await answer.json()) as { choices?: Array<{ message?: { content?: string } }> };
-          return body.choices?.[0]?.message?.content ?? '';
-        }
-      : undefined;
-
-    // What this robot has already returned. Without it, a posting reposted every ten minutes is a new
-    // row every ten minutes, and a week of that buries the eleven things that actually happened.
-    const memoryFile = memoryFileFor(user.id, robot.name);
-    const memory = (robot as { remember?: unknown }).remember
-      ? { seen: await readMemory(memoryFile), save: (next: Record<string, Seen>) => writeMemory(memoryFile, next) }
-      : undefined;
-
-    const run = await pool.use(poolKey(user.id, isTelegramRobot(robot) ? undefined : robot.proxy), (session) =>
-      runRobot(robot, {
-        page: async () => session.page,
-        rules,
-        maxPages,
-        telegramSession,
-        ...(ask ? { ask } : {}),
-        ...(memory ? { memory } : {}),
-      }),
-    );
-
-    // One timestamp for both, because they are two halves of the same event: the line in the history
-    // and the rows it is about have to be findable from each other.
-    const at = new Date().toISOString();
-    await remember(historyFileFor(user.id), {
-      at,
-      robot: robot.name,
-      kind: 'run',
-      status: run.status,
-      rows: run.rows.length,
-      pages: run.pagesVisited,
-      ms: Date.now() - started,
-      ...(run.reason ? { why: run.reason.slice(0, 200) } : {}),
-      ...(run.challenge ? { door: true } : {}),
-      ...(isTelegramRobot(robot) ? {} : { proxy: robot.proxy ?? 'direct' }),
-    });
-
-    // Kept so that "I ran it yesterday" is answerable today. Only the rows: the verdict and the reason
-    // are in the history already.
-    await keepResult(user.id, robot.name, {
-      at,
-      status: run.status,
-      rows: run.rows,
-      pagesVisited: run.pagesVisited,
-      ...(run.reason ? { reason: run.reason } : {}),
-    }).catch(() => undefined);
-
-    // A scraper that says when it breaks says it to whoever opens the screen; one on a schedule breaks
-    // at four in the morning and is found on Friday. So a run is also where the owner gets told —
-    // once per breakage and once per recovery, and never for a single bad run.
-    await maybeTell(user.id, robot.name);
-
-    // The line an operator wants at four in the morning: which robot, what it returned, why not more.
-    log(run.status === 'ok' ? 'info' : 'warn', 'robot ran', {
-      robot: robot.name,
-      user: user.id,
-      status: run.status,
-      rows: run.rows.length,
-      pages: run.pagesVisited,
-      ms: Date.now() - started,
-      ...(run.reason ? { why: run.reason.slice(0, 200) } : {}),
-      ...(isTelegramRobot(robot) ? {} : { proxy: robot.proxy ?? 'direct' }),
-    });
-    return run;
-  },
+  '/api/run': async (body, user) =>
+    runForAccount(user.id, String(body['name']), {
+      pool,
+      rules,
+      ...(Number(body['maxPages'] ?? 0) ? { maxPages: Number(body['maxPages']) } : {}),
+    }),
 
   /**
    * Keys for the machines. A schedule in n8n, a cron, somebody else's script: they all need a
@@ -695,6 +597,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     // Its memory of what it has seen goes too: keeping it would silence a scraper recreated later.
     await rm(memoryFileFor(user.id, name), { force: true }).catch(() => undefined);
     await forgetResults(user.id, name).catch(() => undefined);
+    if (usingDatabase()) await forgetSchedule(user.id, name).catch(() => undefined);
 
     if (isTelegramRobot(robot)) return { deleted: name, removed, forgotten: 0 };
 
@@ -802,6 +705,42 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     return { sent: true };
   },
 
+  /**
+   * How often each scraper runs by itself.
+   *
+   * The platform had no scheduler on purpose — cron exists, n8n exists. That holds until somebody has
+   * fifteen scrapers, at which point "a scraper is one command" means fifteen crontab lines on a
+   * machine they have to ssh into, each carrying a key, and nothing in the product knowing whether any
+   * of it happens. This is an interval and a next time, and nothing that belongs to a workflow engine.
+   */
+  '/api/schedules': async (_body, user) => {
+    if (!usingDatabase()) return { schedules: [], off: 'no database configured, so nothing can be scheduled' };
+    return { schedules: await schedulesFor(user.id), waiting: usingQueue() ? await waiting().catch(() => 0) : 0 };
+  },
+
+  '/api/schedule/set': async (body, user) => {
+    if (!usingDatabase() || !usingQueue()) {
+      throw new InputError('scheduling needs the database and the queue — they come with the compose stack');
+    }
+
+    const name = String(body['name'] ?? '');
+    await loadRobot(name, robotsDirFor(user.id)); // a schedule for a scraper that does not exist is a lie
+    const every = Number(body['everyMinutes'] ?? 0) || undefined;
+
+    const set = await setSchedule(user.id, name, every);
+    log('info', 'schedule set', { robot: name, user: user.id, everyMinutes: set?.everyMinutes ?? 0 });
+    return { schedule: set ?? null };
+  },
+
+  /** Run it now, through the same line the schedule uses — so "now" and "later" are one code path. */
+  '/api/schedule/now': async (body, user) => {
+    if (!usingQueue()) throw new InputError('the queue is not configured — press Run instead');
+    const name = String(body['name'] ?? '');
+    await loadRobot(name, robotsDirFor(user.id));
+    await enqueue({ userId: user.id, scraper: name, because: 'asked' });
+    return { queued: name };
+  },
+
   /** What this scraper brought back on its last few runs — the list, without the rows. */
   '/api/results': async (body, user) => ({
     kept: await keptRuns(user.id, String(body['name'] ?? '')),
@@ -845,6 +784,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     await rename(wasMemory, nowMemory).catch(() => undefined); // a scraper that never remembered has no file
 
     await moveResults(user.id, from, renamed.name).catch(() => undefined);
+    if (usingDatabase()) await moveSchedule(user.id, from, renamed.name).catch(() => undefined);
     const runs = await renameInHistory(historyFileFor(user.id), from, renamed.name);
 
     log('info', 'scraper renamed', { from, to: renamed.name, user: user.id, runs });
@@ -1383,40 +1323,6 @@ server.on('upgrade', (request, socket, head) => {
   socket.on('error', () => upstream.destroy());
 });
 
-/**
- * Tell the owner, if there is anything to tell.
- *
- * Everything that could go wrong here is somebody else's service being unreachable, and a scrape that
- * worked must not be reported as failed because a bot did not answer. So a failure to tell is logged
- * and swallowed.
- */
-async function maybeTell(userId: string, robot: string): Promise<void> {
-  const file = alertsFileFor(userId);
-  const alerts = await readAlerts(file);
-  if (!alerts.botToken || !alerts.chatId) return;
-
-  const now = (await standing(historyFileFor(userId))).find((entry) => entry.robot === robot);
-  if (!now) return;
-
-  const telling = whatToSay(now, alerts);
-  if (!telling) return;
-
-  try {
-    await tell(alerts, telling.say);
-    await writeAlerts(file, {
-      ...alerts,
-      told: { ...alerts.told, [robot]: { status: now.status, inARow: now.inARow, at: now.at } },
-    });
-    log('info', 'owner told', { robot, user: userId, about: telling.kind });
-  } catch (error) {
-    // Somebody else's service being unreachable must not turn a scrape that worked into a failure.
-    log('warn', 'could not tell the owner', {
-      robot,
-      user: userId,
-      why: error instanceof Error ? error.message.slice(0, 200) : String(error),
-    });
-  }
-}
 
 const PUBLIC_DIR = resolve(process.env['RATATOSK_PUBLIC'] ?? 'public');
 const CONTENT_TYPES: Record<string, string> = {
@@ -1465,15 +1371,6 @@ async function adoptExistingRobots(into: string): Promise<void> {
   }
 }
 
-async function loadRules(dir: string): Promise<SiteRule[]> {
-  try {
-    const names = await readdir(dir);
-    const files = names.filter((file) => file.endsWith('.json'));
-    return await Promise.all(files.map(async (file) => JSON.parse(await readFile(join(dir, file), 'utf8')) as SiteRule));
-  } catch {
-    return [];
-  }
-}
 
 /**
  * A browser can fail in ways that surface as an unhandled rejection, and a web server that dies from

@@ -6,7 +6,7 @@ import { memoryFileFor, readMemory, writeMemory } from './memory.js';
 import { repairScenario } from './repair.js';
 import { parseRobot, type Robot } from './robots.js';
 import { runRobot } from './run-robot.js';
-import type { SiteRule } from './rules.js';
+import { loadRules, type SiteRule } from './rules.js';
 import { resolveScope } from './scope.js';
 import { isTelegramRobot, sessionForRobot } from './telegram.js';
 
@@ -112,17 +112,6 @@ async function memoryFor(robot: Robot): Promise<{ memory?: Parameters<typeof run
   return { memory: { seen: await readMemory(file), save: (next) => writeMemory(file, next) } };
 }
 
-/** Rules live as one JSON file per site in rules/. A missing directory simply means no rules. */
-async function loadRules(dir: string): Promise<SiteRule[]> {
-  let names: string[];
-  try {
-    names = await readdir(dir);
-  } catch {
-    return [];
-  }
-  const files = names.filter((name) => name.endsWith('.json'));
-  return Promise.all(files.map(async (name) => JSON.parse(await readFile(join(dir, name), 'utf8')) as SiteRule));
-}
 
 main().then(
   (code) => process.exit(code),

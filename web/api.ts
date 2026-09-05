@@ -26,6 +26,15 @@ import type { RobotSummary } from '../src/robots.js';
 
 export type { RobotSummary, ProxyView };
 
+/** How often a scraper runs by itself, and when it next will. */
+export interface Schedule {
+  scraper: string;
+  everyMinutes: number;
+  nextAt: string;
+  lastAt?: string;
+  paused: boolean;
+}
+
 /** What an account may see about its own alerts: everything except the token. */
 export interface AlertState {
   on: boolean;
@@ -130,6 +139,11 @@ export const api = {
   deletedScrapers: () =>
     post<{ deleted: Array<{ file: string; name: string; kind: string; at: string }> }>('/api/robot/deleted'),
   restoreScraper: (file: string) => post<{ restored: string }>('/api/robot/restore', { file }),
+  schedules: () =>
+    post<{ schedules: Schedule[]; waiting?: number; off?: string }>('/api/schedules'),
+  setSchedule: (name: string, everyMinutes: number) =>
+    post<{ schedule: Schedule | null }>('/api/schedule/set', { name, everyMinutes }),
+  runNow: (name: string) => post<{ queued: string }>('/api/schedule/now', { name }),
   keptRuns: (name: string) =>
     post<{ kept: Array<{ at: string; status: string; rows: number; reason?: string }> }>('/api/results', { name }),
   keptResult: (name: string, at: string) =>

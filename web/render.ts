@@ -174,6 +174,17 @@ export function proxyCard(proxy: {
     </div>`;
 }
 
+/** The intervals on offer. Not a cron field: a cron field is a support burden with a syntax. */
+const EVERY: Array<[number, string]> = [
+  [0, 'by hand'],
+  [15, 'every 15 min'],
+  [30, 'every 30 min'],
+  [60, 'hourly'],
+  [180, 'every 3 h'],
+  [720, 'twice a day'],
+  [1440, 'daily'],
+];
+
 export function scraperCard(
   scraper: {
     name: string;
@@ -189,6 +200,8 @@ export function scraperCard(
   standing?: { status: 'ok' | 'empty' | 'broken'; at: string; rows: number; inARow: number; why?: string },
   /** A probe done just now, which is newer than any run and therefore what the card should say. */
   check?: { at: string; ok: boolean; note: string },
+  /** How often it runs by itself, if it does. */
+  schedule?: { everyMinutes: number; nextAt: string },
 ): string {
   // How it is now, under what it is. A card that only says what a scraper was built to do cannot tell
   // you the one thing you came to find out.
@@ -213,12 +226,23 @@ export function scraperCard(
           // Columns from inside a row are marked, because they are not free: one page load each.
           scraper.deeper?.length ? ` \u00b7 ${scraper.deeper.map((field) => `${escapeHtml(field)} \u2193`).join(' \u00b7 ')}` : ''
         } \u2014 ${escapeHtml(scraper.pagination)}${scraper.proxy ? ` \u00b7 <span class="via">via proxy</span>` : ''}</div>
+        ${
+          schedule
+            ? `<div class="meta">runs by itself · next ${escapeHtml(new Date(schedule.nextAt).toLocaleTimeString())}</div>`
+            : ''
+        }
         <button class="opener" data-scraper-history="${escapeHtml(scraper.name)}"
                 aria-label="the story of ${escapeHtml(scraper.name)}"
                 title="every run this scraper has had: what came back and why it stopped there">${how}</button>
         <div class="history" data-history-for="${escapeHtml(scraper.name)}" hidden></div>
       </div>
       <div class="row">
+        <select class="tiny" data-every="${escapeHtml(scraper.name)}" title="how often it runs by itself">
+          ${EVERY.map(
+            ([minutes, label]) =>
+              `<option value="${minutes}"${schedule?.everyMinutes === minutes ? ' selected' : ''}>${label}</option>`,
+          ).join('')}
+        </select>
         ${checkIcon('data-scraper-check', scraper.name, 'check it now: one page, no model, nothing remembered')}
         <button data-run="${escapeHtml(scraper.name)}">Run</button>
         <button data-repair="${escapeHtml(scraper.name)}">Repair</button>

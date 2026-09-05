@@ -52,6 +52,7 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "patchright": "^1.62.1",
     "pg": "^8.23.0",
+    "redis": "^6.2.1",
     "telegram": "^2.26.22",
     "zod": "^4.4.3"
   }

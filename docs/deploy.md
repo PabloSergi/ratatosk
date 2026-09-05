@@ -143,8 +143,33 @@ node dist/mcp/server.js
 
 ## On a schedule
 
-There is no scheduler inside the platform on purpose — a scraper is one command, and the host already has
-cron:
+Every scraper's card carries an interval — by hand, every 15 minutes, hourly, daily. That is the whole
+of the scheduler, and it is deliberately not a cron field: a cron field is a syntax and a support
+burden, and nobody scheduling a job board needs "every third Tuesday".
+
+What makes it safe rather than clever is where the decisions live. What is due is claimed in one
+atomic statement in Postgres, so two workers asking at the same moment produce one run and not two.
+The next time is set from now rather than from the time that was missed, so a worker that was down for
+an hour comes back and runs once instead of twelve times catching up. A lock in Redis is held for the
+length of a run, so one scraper is never walking a site in two browsers at once — which is how an
+address gets blocked and how a memory gets written twice.
+
+Nothing retries. A run that failed is in the history with its reason, the owner has been told if they
+asked to be, and the next interval comes round soon enough: a queue that retries a broken selector four
+times has broken it four times.
+
+The worker is its own container, because a run holds a browser open for a minute at a gigabyte a time
+and the screen has to keep answering while that happens:
+
+```bash
+docker compose up -d db queue web worker logs
+docker compose logs -f worker
+```
+
+### Or from outside, if you would rather
+
+Nothing above replaces cron or n8n, and an installation without Postgres and Redis has neither the
+schedule nor the worker — Run still works, and so does this:
 
 ```cron
 */30 * * * * cd /opt/ratatosk && docker compose run --rm web node dist/cli.js robots/jobs.json --json >> /var/log/ratatosk/jobs.log 2>&1

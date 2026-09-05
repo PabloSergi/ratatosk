@@ -224,12 +224,19 @@ async function loadScrapers(): Promise<void> {
     el('kinds').innerHTML =
       counts.size > 1 ? kindTabs([...counts].map(([kind, count]) => ({ kind, count })), shownKind) : '';
 
+    // …and how often it runs by itself, if the stack it is installed in can do that at all.
+    const when = new Map(
+      (await api.schedules().catch(() => ({ schedules: [] }))).schedules.map((one) => [one.scraper, one]),
+    );
+
     // How each scraper is doing, fetched beside the list: a card that cannot say that is half a card.
     const how = new Map((await api.history().catch(() => ({ standing: [] }))).standing.map((entry) => [entry.robot, entry]));
 
     const shown = shownKind === 'all' ? scrapers : scrapers.filter((scraper) => scraper.kind === shownKind);
     el('scrapers').innerHTML = shown.length
-      ? shown.map((scraper) => scraperCard(scraper, how.get(scraper.name), probes.get(scraper.name))).join('')
+      ? shown
+          .map((scraper) => scraperCard(scraper, how.get(scraper.name), probes.get(scraper.name), when.get(scraper.name)))
+          .join('')
       : '<span class="muted">nothing of that kind yet</span>';
 
     // Deleting moves a scraper aside rather than destroying it, and that is worth nothing if the only
@@ -847,6 +854,27 @@ el('tgSignIn').addEventListener('click', async () => {
 });
 
 // --- one handler for everything the lists offer ----------------------------------------------------
+
+/** Choosing how often a scraper runs by itself. A select changes, so it is not a click. */
+document.addEventListener('change', async (event) => {
+  const chosen = (event.target as HTMLElement).closest<HTMLSelectElement>('select[data-every]');
+  if (!chosen) return;
+
+  const name = chosen.dataset['every'] ?? '';
+  try {
+    const { schedule } = await api.setSchedule(name, Number(chosen.value));
+    result(
+      name,
+      schedule
+        ? `${badge('ok')} runs by itself every ${schedule.everyMinutes} minutes — next at ` +
+            `${escapeHtml(new Date(schedule.nextAt).toLocaleString())}`
+        : `${badge('empty')} it will only run when you say so`,
+    );
+    await loadScrapers();
+  } catch (error) {
+    result(name, `<span class="broken">${escapeHtml(error instanceof Error ? error.message : error)}</span>`);
+  }
+});
 
 document.addEventListener('click', async (event) => {
   const target = event.target as HTMLElement;

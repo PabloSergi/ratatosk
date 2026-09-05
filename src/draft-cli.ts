@@ -2,7 +2,7 @@ import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { draftScenario } from './draft.js';
 import { openBrowser } from './drivers/patchright.js';
-import type { SiteRule } from './rules.js';
+import { loadRules, type SiteRule } from './rules.js';
 
 /**
  * The build loop from the command line: `node dist/draft-cli.js <url> [--name jobs] [--out path.json]`
@@ -40,15 +40,6 @@ async function main(): Promise<number> {
   }
 }
 
-async function loadRules(dir: string): Promise<SiteRule[]> {
-  try {
-    const names = await readdir(dir);
-    const files = names.filter((file) => file.endsWith('.json'));
-    return await Promise.all(files.map(async (file) => JSON.parse(await readFile(join(dir, file), 'utf8')) as SiteRule));
-  } catch {
-    return [];
-  }
-}
 
 main().then(
   (code) => process.exit(code),

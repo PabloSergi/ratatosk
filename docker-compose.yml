@@ -20,6 +20,21 @@ services:
       retries: 20
     mem_limit: 1g
 
+  # The line of work between the schedule and the worker, and the lock that keeps one scraper from
+  # walking a site in two browsers at once. Nothing durable lives here: everything worth keeping is in
+  # Postgres, so this container can be thrown away and rebuilt without losing anything.
+  queue:
+    image: redis:8-alpine
+    container_name: ratatosk-queue
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 256m
+
   # The operator view. Bound to localhost on purpose: reach it over an SSH tunnel, not over the internet.
   web:
     build: .
@@ -29,6 +44,8 @@ services:
     command: ["node", "dist/web.js"]
     depends_on:
       db:
+        condition: service_healthy
+      queue:
         condition: service_healthy
     ports:
       - "127.0.0.1:5544:5544"
@@ -45,6 +62,7 @@ services:
       RATATOSK_RESULTS: /app/results
       # With this set, runs are kept in Postgres; without it, in files. Nothing else decides.
       RATATOSK_DB: postgres://${POSTGRES_USER:-ratatosk}:${POSTGRES_PASSWORD:-ratatosk}@db:5432/${POSTGRES_DB:-ratatosk}
+      RATATOSK_REDIS: redis://queue:6379
       # debug | info | warn | error — one JSON line per event, read them with the logs service below.
       RATATOSK_LOG: ${RATATOSK_LOG:-info}
     volumes:
@@ -63,6 +81,45 @@ services:
     # a runaway page drags the whole host into swap instead of the container dying alone.
     mem_limit: 5g
     memswap_limit: 5g
+    shm_size: 1g
+
+  # What runs what is due. Its own container, because a run holds a browser open for a minute at a
+  # gigabyte a time: sharing a process with the thing serving the screen means one heavy scrape makes
+  # the interface stop answering, and nobody can tell a busy scraper from a dead service.
+  worker:
+    build: .
+    image: ratatosk:local
+    container_name: ratatosk-worker
+    restart: unless-stopped
+    command: ["node", "dist/worker.js"]
+    depends_on:
+      db:
+        condition: service_healthy
+      queue:
+        condition: service_healthy
+    environment:
+      RATATOSK_DB: postgres://${POSTGRES_USER:-ratatosk}:${POSTGRES_PASSWORD:-ratatosk}@db:5432/${POSTGRES_DB:-ratatosk}
+      RATATOSK_REDIS: redis://queue:6379
+      RATATOSK_LOG: ${RATATOSK_LOG:-info}
+      RATATOSK_MODEL: ${RATATOSK_MODEL:-qwen/qwen3.7-flash}
+      # One browser at a time here: this container exists to be steady, not fast.
+      RATATOSK_MAX_BROWSERS: ${RATATOSK_WORKER_BROWSERS:-1}
+      RATATOSK_PROFILES: /app/profiles
+      RATATOSK_HISTORY: /app/history
+      RATATOSK_MEMORY: /app/memory
+      RATATOSK_RESULTS: /app/results
+    volumes:
+      # The same folders the web service uses: a scheduled run and a pressed button are the same act,
+      # so they read the same scrapers and write the same history.
+      - ./robots:/app/robots
+      - ./history:/app/history
+      - ./memory:/app/memory
+      - ./results:/app/results
+      - ./rules:/app/rules:ro
+      - browser-profiles:/app/profiles
+      - account-secrets:/app/secrets
+    mem_limit: 3g
+    memswap_limit: 3g
     shm_size: 1g
 
   # The MCP server speaks stdio, so a client starts it on demand:

@@ -56,6 +56,18 @@ CREATE TABLE IF NOT EXISTS results (
 );
 
 CREATE INDEX IF NOT EXISTS results_by_scraper ON results (user_id, scraper, at DESC);
+
+CREATE TABLE IF NOT EXISTS schedules (
+  user_id       TEXT        NOT NULL,
+  scraper       TEXT        NOT NULL,
+  every_minutes INTEGER     NOT NULL,
+  next_at       TIMESTAMPTZ NOT NULL,
+  last_at       TIMESTAMPTZ,
+  paused        BOOLEAN     NOT NULL DEFAULT false,
+  PRIMARY KEY (user_id, scraper)
+);
+
+CREATE INDEX IF NOT EXISTS schedules_due ON schedules (next_at) WHERE paused = false;
 `;
 
 export async function db(): Promise<Pool> {

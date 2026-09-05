@@ -1,3 +1,5 @@
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { PageDriver } from './driver.js';
 
 /**
@@ -83,3 +85,18 @@ const REMOVE_SOURCE = `
   return removed;
 }
 `;
+
+/**
+ * Site rules as one JSON file per site in a directory. A missing directory simply means no rules —
+ * every entry point needs this and each used to carry its own copy, which is three places for one
+ * decision about what a rules directory is.
+ */
+export async function loadRules(dir = 'rules'): Promise<SiteRule[]> {
+  try {
+    const names = await readdir(dir);
+    const files = names.filter((file) => file.endsWith('.json'));
+    return await Promise.all(files.map(async (file) => JSON.parse(await readFile(join(dir, file), 'utf8')) as SiteRule));
+  } catch {
+    return [];
+  }
+}
