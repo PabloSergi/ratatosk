@@ -34,6 +34,20 @@ export async function repairScenario(
     return { status: 'not-needed', before, diff: [] };
   }
 
+  // A door meant for a person is not a rotted selector, and nothing here can open one. Saying so
+  // before the model is asked costs nothing and is the truth: the run that just happened already
+  // recognised the challenge, so "the page may be a challenge" is a guess we do not need to make.
+  if (before.challenge) {
+    return {
+      status: 'unfixable',
+      before,
+      diff: [],
+      reason:
+        'the page is a check meant for a person, not a list — no selector can be repaired into passing ' +
+        'it. Open it yourself once from this card, and the profile keeps what the site leaves behind.',
+    };
+  }
+
   await page.goto(scenario.url);
   await page.waitMs(scenario.wait.settleMs + 1500);
   await applyRules(page, rules);

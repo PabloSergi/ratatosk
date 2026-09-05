@@ -379,6 +379,9 @@ button.opener:hover:not(:disabled) { border-color: transparent; }
 button.opener:hover .state { text-decoration: underline dotted; text-underline-offset: 3px; }
 
 .history { margin-top: 10px; border-top: 1px solid var(--edge); padding-top: 8px; }
+.answer { margin-top: 10px; border-top: 1px solid var(--edge); padding-top: 10px; font-size: 13px; }
+.answer table { font-size: 12px; }
+.answer pre { max-height: 220px; overflow: auto; }
 table.runs { width: 100%; border-collapse: collapse; font: 12px/1.7 var(--mono); }
 table.runs td { padding: 3px 10px 3px 0; vertical-align: top; color: var(--ink-dim); }
 table.runs td:last-child { color: var(--ink-faint); }

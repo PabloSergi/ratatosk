@@ -94,6 +94,23 @@ function result(title: string, html: string): void {
   el('resultBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
+/**
+ * The answer to something asked of one scraper, under that scraper.
+ *
+ * It used to go to a panel at the foot of the page, which meant pressing Repair on the first of
+ * seventeen cards threw you to the bottom of the list to read one sentence, and then back up to act on
+ * it. An answer about one thing belongs to that thing: the card grows, nothing moves, and two cards can
+ * hold two answers at once.
+ *
+ * The panel at the foot is still there for the one thing that has no card yet — a scraper being built.
+ */
+function answerIn(scraper: string, html: string): void {
+  const panel = document.querySelector<HTMLElement>(`[data-answer-for="${CSS.escape(scraper)}"]`);
+  if (!panel) return void result(scraper, html); // it is not on screen — the foot of the page is better than nowhere
+  panel.hidden = false;
+  panel.innerHTML = html;
+}
+
 function fail(where: string, error: unknown): void {
   if (error instanceof ApiError && error.unauthorised) return; // the sign-in screen is already back
   el(where).innerHTML = `<span class="broken">${escapeHtml(error instanceof Error ? error.message : String(error))}</span>`;
@@ -252,14 +269,14 @@ async function runScraper(name: string, button: HTMLButtonElement): Promise<void
   const done = busy(button, 'running');
   // The panel keeps the last answer until this one arrives, and a stale answer under a running button
   // reads as the new one. Say what is happening instead.
-  result(name, '<span class="muted">running…</span>');
+  answerIn(name, '<span class="muted">running…</span>');
   try {
     const run = await api.run(name, 2);
     void loadRuns();
     // Kept so the two buttons below have something to hand over: the rows are already here, and asking
     // the site for them a second time to make a file would be both slower and a different answer.
     carried = { name, rows: run.rows };
-    result(
+    answerIn(
       name,
       `${badge(run.status)} <b>${run.rows.length} rows</b> from ${run.pagesVisited} page(s)` +
         (run.reason ? `<pre>${escapeHtml(run.reason)}</pre>` : '') +
@@ -271,7 +288,7 @@ async function runScraper(name: string, button: HTMLButtonElement): Promise<void
         rowsTable(run.rows),
     );
   } catch (error) {
-    result(name, `<span class="broken">${escapeHtml(error instanceof Error ? error.message : error)}</span>`);
+    answerIn(name, `<span class="broken">${escapeHtml(error instanceof Error ? error.message : error)}</span>`);
   } finally {
     done();
   }
@@ -279,7 +296,7 @@ async function runScraper(name: string, button: HTMLButtonElement): Promise<void
 
 async function repairScraper(name: string, button: HTMLButtonElement): Promise<void> {
   const done = busy(button, 'repairing');
-  result(name, '<span class="muted">repairing…</span>');
+  answerIn(name, '<span class="muted">repairing…</span>');
   try {
     const repair = await api.repair(name);
 
@@ -304,18 +321,17 @@ async function repairScraper(name: string, button: HTMLButtonElement): Promise<v
       : '';
 
     const diff = [...(repair.diff ?? []), ...(repair.rule?.diff ?? [])];
-    result(
-      `${name} — repair`,
+    const said =
       [selectors, rule].filter(Boolean).join('<div class="meta spaced"></div>') +
-        (diff.length ? `<pre>${diff.map(escapeHtml).join('\n')}</pre>` : '') +
-        rowsTable(repair.after?.rows),
-    );
+      (diff.length ? `<pre>${diff.map(escapeHtml).join('\n')}</pre>` : '') +
+      rowsTable(repair.after?.rows);
+
+    // The list is redrawn because a repair changes what a card says about itself — and the answer is
+    // put back on the new card, or pressing Repair would look like it did nothing.
     await loadScrapers();
+    answerIn(name, said);
   } catch (error) {
-    result(
-      `${name} — repair`,
-      `<span class="broken">${escapeHtml(error instanceof Error ? error.message : error)}</span>`,
-    );
+    answerIn(name, `<span class="broken">${escapeHtml(error instanceof Error ? error.message : error)}</span>`);
   } finally {
     done();
   }
@@ -876,7 +892,7 @@ document.addEventListener('change', async (event) => {
   const name = chosen.dataset['every'] ?? '';
   try {
     const { schedule } = await api.setSchedule(name, Number(chosen.value));
-    result(
+    answerIn(
       name,
       schedule
         ? `${badge('ok')} runs by itself every ${schedule.everyMinutes} minutes — next at ` +
@@ -885,7 +901,7 @@ document.addEventListener('change', async (event) => {
     );
     await loadScrapers();
   } catch (error) {
-    result(name, `<span class="broken">${escapeHtml(error instanceof Error ? error.message : error)}</span>`);
+    answerIn(name, `<span class="broken">${escapeHtml(error instanceof Error ? error.message : error)}</span>`);
   }
 });
 
@@ -924,9 +940,10 @@ document.addEventListener('click', async (event) => {
       const at = pressed.dataset['at'] ?? '';
       const kept = await api.keptResult(id, at);
       carried = { name: id, rows: kept.rows };
-      result(
-        `${id} — ${new Date(kept.at).toLocaleString()}`,
-        `${badge(kept.status as 'ok')} <b>${kept.rows.length} rows</b> from ${kept.pagesVisited} page(s), kept from that run` +
+      answerIn(
+        id,
+        `${badge(kept.status as 'ok')} <b>${kept.rows.length} rows</b> from ${kept.pagesVisited} page(s), ` +
+          `kept from ${escapeHtml(new Date(kept.at).toLocaleString())}` +
           (kept.reason ? `<pre>${escapeHtml(kept.reason)}</pre>` : '') +
           downloadBar(id, kept.rows.length) +
           rowsTable(kept.rows),
@@ -936,8 +953,8 @@ document.addEventListener('click', async (event) => {
     ['data-download-json', 'result', async (id) => handOver(carried.rows, id, 'json')],
     ['data-restore', 'scrapers', async (id) => {
       const back = await api.restoreScraper(id);
-      result(back.restored, `${badge('ok')} back, under its own name`);
       await loadScrapers();
+      answerIn(back.restored, `${badge('ok')} back, under its own name`);
     }],
     ['data-scraper-rename', 'scrapers', async (id) => {
       // The name turns into a field in place. A dialog would ask the same question in a box that
@@ -959,13 +976,15 @@ document.addEventListener('click', async (event) => {
 
         try {
           const renamed = await api.renameScraper(id, wanted);
-          result(
+          await loadScrapers();
+          answerIn(
             renamed.name,
             `${badge('ok')} renamed from <b>${escapeHtml(renamed.was)}</b>` +
               (renamed.runs ? `<div class="meta spaced">${renamed.runs} run(s) of history came along</div>` : ''),
           );
+          return;
         } catch (error) {
-          result('rename', `<span class="broken">${escapeHtml(error instanceof Error ? error.message : error)}</span>`);
+          answerIn(id, `<span class="broken">${escapeHtml(error instanceof Error ? error.message : error)}</span>`);
         }
         await loadScrapers();
       };
@@ -1000,7 +1019,7 @@ document.addEventListener('click', async (event) => {
 
       const done = busy(pressed, 'opening');
       try {
-        result(id, '<div id="doorNote" class="meta"></div>');
+        answerIn(id, '<div id="doorNote" class="meta"></div>');
         await openDoor(scraper.url, scraper.proxy, 'doorNote');
       } finally {
         done();
@@ -1019,7 +1038,7 @@ document.addEventListener('click', async (event) => {
     ['data-repair', 'scrapers', async (id) => repairScraper(id, pressed)],
     ['data-rule', 'scrapers', async (id) => {
       const rule = await api.rule(id);
-      result(`${id} — what it keeps`, ruleEditor(id, rule.sift, rule.remember, rule.dedupe));
+      answerIn(id, ruleEditor(id, rule.sift, rule.remember, rule.dedupe));
     }],
     ['data-rule-test', 'scrapers', async (id) => {
       const done = busy(pressed, 'collecting');
@@ -1059,7 +1078,7 @@ document.addEventListener('click', async (event) => {
           el<HTMLInputElement>('ruleRemember').checked,
           el<HTMLInputElement>('ruleDedupe').checked,
         );
-        el('ruleOut').innerHTML =
+        const said =
           (saved.sift
             ? `${badge('ok')} saved — the previous rule is kept beside it as .previous.json`
             : `${badge('empty')} saved with no rule — this scraper now keeps everything it collects`) +
@@ -1069,7 +1088,12 @@ document.addEventListener('click', async (event) => {
           (saved.dedupe
             ? ''
             : '<div class="meta">rows repeated inside one run will be handed over as many times as they appear</div>');
+
+        // The card is redrawn because its rule count changed, which takes the editor with it — so the
+        // editor comes back with what was just saved in it, above the word that it was.
         await loadScrapers();
+        answerIn(id, ruleEditor(id, saved.sift, saved.remember, saved.dedupe));
+        el('ruleOut').innerHTML = said; // where the editor puts everything else it has to say
       } finally {
         done();
       }

@@ -144,3 +144,32 @@ test('a repaired robot keeps walking into rows', async () => {
   assert.equal(result.status, 'repaired');
   assert.deepEqual(result.scenario.detail, deep.detail, 'the deeper walk is not a decoration to drop');
 });
+
+/**
+ * Repair wakes a model, and a model cannot open a door meant for a person. The run that just happened
+ * already recognised the challenge, so spending a model call to conclude "the page may be a challenge"
+ * is paying to guess at something we know.
+ */
+test('a door is refused, and refused before the page is studied', async () => {
+  class WalledSite extends FakeSite {
+    constructor() {
+      super({ rows: '.nothing', values: {} });
+      this.studied = false;
+    }
+    async evaluate(fn, arg) {
+      // Nothing the scenario waits for, and a page that says what it is.
+      if (fn.includes('querySelectorAll(selector).length')) return 0;
+      if (fn.includes('innerText')) return "Just a moment… Confirm that you are human. I'm not a robot";
+      if (fn.includes('blocks.length') || fn.includes('candidates')) this.studied = true;
+      return super.evaluate(fn, arg);
+    }
+  }
+
+  const site = new WalledSite();
+  const result = await repairScenario(site, robot);
+
+  assert.equal(result.status, 'unfixable');
+  assert.match(result.reason, /meant for a person/);
+  assert.match(result.reason, /Open it yourself/);
+  assert.equal(site.studied, false, 'and it did not pay a model to find that out');
+});

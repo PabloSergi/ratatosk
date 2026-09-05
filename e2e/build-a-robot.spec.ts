@@ -37,10 +37,10 @@ test('an account is made, a scraper is built, run, and remembered', async ({ pag
   await expect(card).toContainText('127.0.0.1:5610');
 
   // And running it returns rows from the site, not a promise of them.
-  await card.getByRole('button', { name: 'Run' }).click();
-  await expect(page.locator('#result')).toContainText('page(s)', { timeout: 60_000 });
-  await expect(page.locator('#result table')).toBeVisible();
-  await expect(page.locator('#result')).toContainText('Madrid');
+  await card.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(card.locator('.answer')).toContainText('page(s)', { timeout: 60_000 });
+  await expect(card.locator('.answer table')).toBeVisible();
+  await expect(card.locator('.answer')).toContainText('Madrid');
 
   // The run left a mark: the product's claim is that a scraper says how it is doing — and it says it
   // where the question is asked, under its own card.
@@ -65,8 +65,8 @@ test('a scraper card says how the scraper is doing, not just what it is', async 
 
   // "page(s)" belongs to a run and to nothing else: the draft above also says "rows", and waiting for
   // a word the previous answer already contains is how a test passes while nothing has happened.
-  await card.getByRole('button', { name: 'Run' }).click();
-  await expect(page.locator('#result')).toContainText('page(s)', { timeout: 60_000 });
+  await card.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(card.locator('.answer')).toContainText('page(s)', { timeout: 60_000 });
 
   await page.reload();
   await expect(page.locator('.item', { hasText: 'standing-check' })).toContainText('rows');
@@ -102,7 +102,7 @@ test('deleting a scraper asks first, and then it is gone', async ({ page }) => {
   await expect(page.locator('.item', { hasText: 'doomed' })).toBeVisible();
 
   await card.getByRole('button', { name: 'really?' }).click();
-  await expect(page.locator('#result')).toContainText('deleted', { timeout: 30_000 });
+  await expect(page.locator('#result, .answer').first()).toContainText('deleted', { timeout: 30_000 });
   await expect(page.locator('#scrapers .item', { hasText: 'doomed' })).toHaveCount(0);
 
   await page.reload();
@@ -141,10 +141,11 @@ test('a scraper built from a page can be given a rule, tried, and kept', async (
   await expect(page.locator('#ruleOut')).toContainText('saved', { timeout: 30_000 });
 
   // And now the scraper returns only what the rule allows.
-  await page.locator('.item', { hasText: 'sifted' }).getByRole('button', { name: 'Run' }).click();
-  await expect(page.locator('#result')).toContainText('page(s)', { timeout: 60_000 });
-  await expect(page.locator('#result')).toContainText('Madrid');
-  await expect(page.locator('#result table')).not.toContainText('Valencia');
+  const sifted = page.locator('.item', { hasText: 'sifted' });
+  await sifted.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(sifted.locator('.answer')).toContainText('page(s)', { timeout: 60_000 });
+  await expect(sifted.locator('.answer')).toContainText('Madrid');
+  await expect(sifted.locator('.answer table')).not.toContainText('Valencia');
 });
 
 test('a scraper that remembers hands back only what it has not seen', async ({ page }) => {
@@ -166,13 +167,13 @@ test('a scraper that remembers hands back only what it has not seen', async ({ p
 
   // The site has not changed between these two runs, so the second one has nothing to say — and that
   // is a quiet day, not an empty source and not a broken robot.
-  await card.getByRole('button', { name: 'Run' }).click();
-  await expect(page.locator('#result')).toContainText('page(s)', { timeout: 60_000 });
-  await expect(page.locator('#result')).toContainText('Madrid');
+  await card.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(card.locator('.answer')).toContainText('page(s)', { timeout: 60_000 });
+  await expect(card.locator('.answer')).toContainText('Madrid');
 
-  await card.getByRole('button', { name: 'Run' }).click();
-  await expect(page.locator('#result')).toContainText('seen before', { timeout: 60_000 });
-  await expect(page.locator('#result')).not.toContainText('Madrid');
+  await card.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(card.locator('.answer')).toContainText('seen before', { timeout: 60_000 });
+  await expect(card.locator('.answer')).not.toContainText('Madrid');
 });
 
 test('a scraper can be checked without running it, and says what it found', async ({ page }) => {
@@ -210,8 +211,8 @@ test('a scraper can be renamed by its own name, and keeps what it did', async ({
   await expect(page.locator('#resultTitle')).toContainText('misnamed', { timeout: 60_000 });
 
   const card = page.locator('.item', { hasText: 'misnamed' });
-  await card.getByRole('button', { name: 'Run' }).click();
-  await expect(page.locator('#result')).toContainText('page(s)', { timeout: 60_000 });
+  await card.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(card.locator('.answer')).toContainText('page(s)', { timeout: 60_000 });
 
   // The name is the control: press it, type, press Enter.
   await card.locator('button[data-scraper-rename]').click();
@@ -219,7 +220,9 @@ test('a scraper can be renamed by its own name, and keeps what it did', async ({
   await page.locator('input.renaming').press('Enter');
 
   await expect(page.locator('.item', { hasText: 'renamed-well' })).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator('.item', { hasText: 'misnamed' })).toHaveCount(0);
+  // By the control that carries the name, not by the text: the card now says "renamed from misnamed",
+  // which is the answer to what was asked and not a scraper still called that.
+  await expect(page.locator('button[data-scraper-rename="misnamed"]')).toHaveCount(0);
 
   // And the run it had before the rename is still its own run.
   const renamed = page.locator('.item', { hasText: 'renamed-well' });
@@ -238,8 +241,9 @@ test('what a run put on the screen can be taken away as a file', async ({ page }
   await page.click('#draft');
   await expect(page.locator('#resultTitle')).toContainText('takeaway', { timeout: 60_000 });
 
-  await page.locator('.item', { hasText: 'takeaway' }).getByRole('button', { name: 'Run', exact: true }).click();
-  await expect(page.locator('#result')).toContainText('page(s)', { timeout: 60_000 });
+  const takeaway = page.locator('.item', { hasText: 'takeaway' });
+  await takeaway.getByRole('button', { name: 'Run', exact: true }).click();
+  await expect(takeaway.locator('.answer')).toContainText('page(s)', { timeout: 60_000 });
 
   const saving = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download CSV' }).click();
@@ -306,17 +310,46 @@ test('what a run brought back can be opened again from its history', async ({ pa
 
   const card = page.locator('.item', { hasText: 'keeper' });
   await card.getByRole('button', { name: 'Run', exact: true }).click();
-  await expect(page.locator('#result')).toContainText('page(s)', { timeout: 60_000 });
+  await expect(card.locator('.answer')).toContainText('page(s)', { timeout: 60_000 });
 
   // Close the answer by asking a different question, the way a person closes a tab.
   await page.reload();
-  await expect(page.locator('#result')).not.toContainText('Madrid');
+  await expect(card.locator('.answer')).not.toContainText('Madrid');
 
   // …and yesterday's work is still there, under the run that produced it.
   await card.locator('button[data-scraper-history]').click();
   await card.locator('button[data-open-result]').first().click();
 
-  await expect(page.locator('#result')).toContainText('kept from that run', { timeout: 30_000 });
-  await expect(page.locator('#result')).toContainText('Madrid');
-  await expect(page.getByRole('button', { name: 'Download CSV' })).toBeVisible();
+  await expect(card.locator('.answer')).toContainText('kept from', { timeout: 30_000 });
+  await expect(card.locator('.answer')).toContainText('Madrid');
+  await expect(card.getByRole('button', { name: 'Download CSV' })).toBeVisible();
+});
+
+/**
+ * An answer about one scraper belongs under that scraper. It used to go to a panel at the foot of the
+ * page, so pressing Repair on the first of seventeen cards threw you to the bottom to read one
+ * sentence and back up to act on it.
+ */
+test('what a scraper is asked, it answers on its own card', async ({ page }) => {
+  await page.goto('/');
+  await page.fill('#authEmail', `eleventh-${Date.now()}@example.com`);
+  await page.fill('#authPassword', 'a-long-enough-password');
+  await page.click('#authRegister');
+
+  await page.fill('#url', SITE);
+  await page.fill('#name', 'answers-here');
+  await page.click('#draft');
+  await expect(page.locator('#resultTitle')).toContainText('answers-here', { timeout: 60_000 });
+
+  const card = page.locator('.item', { hasText: 'answers-here' });
+  await card.getByRole('button', { name: 'Run', exact: true }).click();
+
+  const answer = card.locator('.answer');
+  await expect(answer).toContainText('rows', { timeout: 60_000 });
+  await expect(answer).toContainText('Madrid');
+  await expect(answer.getByRole('button', { name: 'Download CSV' })).toBeVisible();
+
+  // …and the rule editor opens in the same place, rather than at the other end of the page.
+  await card.getByRole('button', { name: 'Rule' }).click();
+  await expect(answer.locator('#ruleKeep')).toBeVisible({ timeout: 30_000 });
 });

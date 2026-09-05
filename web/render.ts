@@ -235,6 +235,8 @@ export function scraperCard(
                 aria-label="the story of ${escapeHtml(scraper.name)}"
                 title="every run this scraper has had: what came back and why it stopped there">${how}</button>
         <div class="history" data-history-for="${escapeHtml(scraper.name)}" hidden></div>
+        <!-- What this scraper was last asked, answered where it was asked. -->
+        <div class="answer" data-answer-for="${escapeHtml(scraper.name)}" hidden></div>
       </div>
       <div class="row">
         ${
