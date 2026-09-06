@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
 
-import { identity, meet, readMemory, sameRowInThisRun, writeMemory } from '../src/memory.ts';
+import { identity, identityOfMessage, meet, readMemory, sameRowInThisRun, writeMemory } from '../src/memory.ts';
 
 /**
  * The failure this exists for: a bot reposts the same advertisement every ten minutes, and by the end
@@ -147,4 +147,35 @@ test('within one run, nothing is forgiven on the end', () => {
     sameRowInThisRun(posting('rewritten', 'https://example.com/1')),
     'a link settles it, here as everywhere',
   );
+});
+
+/**
+ * A channel is not a job board.
+ *
+ * On a board a posting keeps its address, and the link is the honest key. In a channel the address
+ * belongs to the message: the same advert pushed out again tomorrow arrives as a new message with a
+ * new number and a new link, and a memory keyed on either lets a daily reposter through daily.
+ */
+const message = (text, id) => ({ id, date: '2026-09-06T04:00:00.000Z', link: `https://t.me/jobs/${id}`, text, channel: 'jobs' });
+
+test('the same advert posted again tomorrow is the same advert, whatever number the message got', () => {
+  const today = message('Looking for a chat operator for evening shifts, 60% of takings, start immediately', '101');
+  const tomorrow = message('Looking for a chat operator for evening shifts, 60% of takings, start immediately', '742');
+
+  assert.notEqual(identity(today), identity(tomorrow), 'by its address it is a different message — and that is the trap');
+  assert.equal(identityOfMessage(today), identityOfMessage(tomorrow), 'by what it says it is the advert we already handed over');
+
+  const first = meet([today], {}, {}, new Date('2026-09-06T04:00:00Z'), identityOfMessage);
+  const second = meet([tomorrow], first.memory, {}, new Date('2026-09-07T04:00:00Z'), identityOfMessage);
+  assert.equal(second.fresh.length, 0);
+  assert.equal(second.repeated.length, 1);
+});
+
+test('two different jobs in one channel stay two, and a named column still wins', () => {
+  const one = message('Chat operator wanted for the evening shift in Madrid, 60% of takings', '101');
+  const other = message('Content manager wanted, mornings, Valencia, 1800 a month, no experience needed', '102');
+  assert.notEqual(identityOfMessage(one), identityOfMessage(other));
+
+  // Somebody who says which column identifies their source knows their source; that is not overruled.
+  assert.equal(identityOfMessage(one, 'id'), identityOfMessage({ ...one, text: 'rewritten' }, 'id'));
 });

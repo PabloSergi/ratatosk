@@ -2,7 +2,7 @@ import type { PageDriver } from './driver.js';
 import type { Robot } from './robots.js';
 import type { SiteRule } from './rules.js';
 import { runScenario, type RunResult } from './run.js';
-import { meet, type Remember, type Seen } from './memory.js';
+import { identityOfMessage, meet, type Remember, type Row, type Seen } from './memory.js';
 import { judgeLeftovers, judgeSift, sift, type Sift } from './sift.js';
 import { isTelegramRobot, runTelegramRobot } from './telegram.js';
 
@@ -44,7 +44,7 @@ export async function runRobot(
         ...(sifted.note ? { evidence: { blocksSeen: rows.length, missingFields: {}, url: robot.channels.join(', ') } } : {}),
       };
     }
-    const seen = await remember(sifted.rows, robot.remember, options.memory);
+    const seen = await remember(sifted.rows, robot.remember, options.memory, identityOfMessage);
     if (seen.rows.length === 0 && seen.note) {
       // Everything that came was something we already had. That is not an empty channel and not a
       // broken robot — it is a quiet day, and it must not read like either.
@@ -103,10 +103,12 @@ async function remember(
   rows: Array<Record<string, string | null>>,
   rule: Remember | undefined,
   memory: { seen: Record<string, Seen>; save: (memory: Record<string, Seen>) => Promise<void> } | undefined,
+  /** What identifies a row from this source. See `identityOfMessage` for why a channel differs. */
+  identify?: (row: Row, by?: string) => string | undefined,
 ): Promise<{ rows: Array<Record<string, string | null>>; note?: string }> {
   if (!rule || !memory) return { rows };
 
-  const sighting = meet(rows, memory.seen, rule);
+  const sighting = meet(rows, memory.seen, rule, new Date(), identify);
   await memory.save(sighting.memory);
 
   const note =

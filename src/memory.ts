@@ -129,6 +129,26 @@ function key(row: Row, by: string | undefined, stripBumps: boolean): string | un
   return `h:${createHash('sha256').update(body.slice(0, HEAD)).digest('hex').slice(0, 24)}`;
 }
 
+/**
+ * The identity of a Telegram message.
+ *
+ * A message carries its own address — a link and a number — and both address the MESSAGE. The same
+ * advert posted again tomorrow is a different message at a different address, so a memory keyed on one
+ * lets a channel that reposts every morning through every morning, and by Friday the table holds the
+ * same eleven jobs five times over. A link is the honest key on a job board, where a posting keeps its
+ * address; in a channel it is the opposite of one.
+ *
+ * What a post IS, is what it says. So it is identified by its text, with the same normalising and the
+ * same tolerance for a bump on the end as anywhere else, and by nothing else about it. A scraper that
+ * names its own column with `by` is still obeyed: that is somebody saying they know better about their
+ * own source, which they may well.
+ */
+export function identityOfMessage(row: Row, by?: string): string | undefined {
+  if (by) return identity(row, by);
+  const text = row['text'];
+  return typeof text === 'string' && text !== '' ? key({ text }, undefined, true) : identity(row);
+}
+
 export async function readMemory(file: string): Promise<Record<string, Seen>> {
   try {
     return JSON.parse(await readFile(file, 'utf8')) as Record<string, Seen>;
@@ -159,14 +179,21 @@ export interface Sighting {
  * Nothing here decides what a run returns — that is the caller's business, because "only what is new"
  * and "everything, with the repeats marked" are both legitimate and different jobs.
  */
-export function meet(rows: Row[], memory: Record<string, Seen>, rule: Remember = {}, now = new Date()): Sighting {
+export function meet(
+  rows: Row[],
+  memory: Record<string, Seen>,
+  rule: Remember = {},
+  now = new Date(),
+  /** What identifies a row here. A page walk is identified by its links; a channel, by what was said. */
+  identify: (row: Row, by?: string) => string | undefined = identity,
+): Sighting {
   const stamp = now.toISOString();
   const fresh: Row[] = [];
   const repeated: Array<{ row: Row; firstSeen: string; times: number }> = [];
   const next: Record<string, Seen> = { ...memory };
 
   for (const row of rows) {
-    const key = identity(row, rule.by);
+    const key = identify(row, rule.by);
     if (!key) {
       fresh.push(row); // nothing to remember it by, so it can only ever be new
       continue;
