@@ -61,6 +61,7 @@ To fan the rows out one by one, follow with **Split Out** on `rows`.
 | build a new one | `POST /api/agent` | `{ "url": "…", "want": "…", "proxy": "…" }` |
 | what a scraper's last runs brought back | `POST /api/results` | `{ "name": "…" }` |
 | the rows of one of them | `POST /api/results/get` | `{ "name": "…", "at": "2026-09-05T03:37:46.595Z" }` |
+| everything all of them brought back since a moment | `POST /api/harvest` | `{ "since": "2026-09-05T06:00:00.000Z" }` |
 | what runs by itself, and when next | `POST /api/schedules` | — |
 | set that | `POST /api/schedule/set` | `{ "name": "…", "everyMinutes": 60 }` |
 
@@ -77,10 +78,38 @@ call, so the rows arrive in the same answer and n8n has them without asking twic
 delivery is the point and the timing belongs with the rest of your workflow.
 
 **Ratatosk drives.** Set an interval on the scraper's card and let its own worker run it. n8n then only
-collects: `POST /api/results` for that scraper says what the last runs brought back and when, newest
-first, and `POST /api/results/get` with one of those timestamps hands over the rows. Use this when the
-scraper is heavy or awkward — a browser held open for a minute is a long HTTP call to keep waiting on,
-and a schedule that lives with the scraper is a schedule you can see from the card.
+collects. Use this when the scraper is heavy or awkward — a browser held open for a minute is a long
+HTTP call to keep waiting on, and a schedule that lives with the scraper is a schedule you can see from
+the card.
+
+Collecting is one call, whatever the scraper:
+
+    POST /api/harvest    { "since": "2026-09-05T06:00:00.000Z" }
+
+and everything every scraper of yours brought back after that moment comes out flat:
+
+```json
+{
+  "since": "2026-09-05T06:00:00.000Z",
+  "until": "2026-09-06T06:00:00.000Z",
+  "rows": [
+    { "scraper": "city-jobs", "kind": "web", "at": "2026-09-06T03:12:44.001Z", "fields": { "title": "…", "link": "…" } },
+    { "scraper": "tg-hiring", "kind": "telegram", "at": "2026-09-06T03:41:02.884Z", "fields": { "text": "…", "link": "…" } }
+  ]
+}
+```
+
+`since` is exclusive, so passing back the previous answer's `until` asks for exactly what is new. Leave
+it out and it looks back a day and an hour — a scraper on a daily schedule and a collection on a daily
+schedule drift against each other, and an hour of overlap costs a few rows the far side already has
+rather than a day of postings nobody ever sent.
+
+`kind` is there because it decides how the far side must read the row: `web` is already fields, and
+`telegram` is a paragraph somebody typed, which usually wants a model between it and a database.
+
+The per-scraper doors are still there when a person, not a machine, is the one asking: `POST /api/results`
+says what one scraper's last runs brought back and when, and `POST /api/results/get` with one of those
+timestamps hands over that run's rows.
 
 Either way the memory does the deduplicating: a scraper that remembers hands back only what it has not
 handed over before, so the receiving end does not need a "have I seen this" table of its own.

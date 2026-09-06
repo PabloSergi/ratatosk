@@ -53,7 +53,7 @@ import { liveLog, liveStream, nextFrame, viewerPage } from './live-view.js';
 import { InputError } from './errors.js';
 import { failure, info, log, warn } from './log.js';
 import { alertsFileFor, DEFAULT_AFTER, readAlerts, tell, viewAlerts, whatToSay, writeAlerts } from './alerts.js';
-import { forgetResults, keepResult, keptRuns, moveResults, readResult } from './results.js';
+import { forgetResults, harvestSince, keepResult, keptRuns, moveResults, readResult } from './results.js';
 import { forgetSchedule, moveSchedule, schedulesFor, setSchedule } from './schedule.js';
 import { enqueue, usingQueue, waiting } from './queue.js';
 import { usingDatabase } from './db.js';
@@ -767,6 +767,37 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     const kept = await readResult(user.id, String(body['name'] ?? ''), String(body['at'] ?? ''));
     if (!kept) throw new InputError('nothing kept from that run — it may have aged out');
     return kept;
+  },
+
+  /**
+   * Everything the scrapers have brought back since a moment, in one answer.
+   *
+   * This is the door a machine comes to. A person opens one scraper and looks at its last run; whatever
+   * is downstream — an n8n workflow, a database of its own — wants the day's whole harvest and does not
+   * care which of seventeen scrapers each row came out of. Asking scraper by scraper means eighteen
+   * calls to learn that fifteen of them found nothing new today.
+   *
+   * Without `since` it looks back a day and an hour: a scraper on a daily schedule and a harvest on a
+   * daily schedule drift against each other, and an hour of overlap costs a few rows the far side
+   * already has rather than a day's postings nobody ever sent.
+   */
+  '/api/harvest': async (body, user) => {
+    const asked = String(body['since'] ?? '').trim();
+    const since = asked || new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    if (Number.isNaN(Date.parse(since))) throw new InputError(`"${asked}" is not a time — give an ISO date, or none at all`);
+
+    // What a scraper reads decides how the far side must read it back: a table row is already fields,
+    // a Telegram post is a paragraph somebody typed. Saying which is which here saves everyone guessing.
+    const kinds = new Map((await listRobots(robotsDirFor(user.id))).map((robot) => [robot.name, robot.kind]));
+    const runs = await harvestSince(user.id, since);
+
+    return {
+      since,
+      until: new Date().toISOString(),
+      rows: runs.flatMap((run) =>
+        run.rows.map((fields) => ({ scraper: run.scraper, kind: kinds.get(run.scraper) ?? 'web', at: run.at, fields })),
+      ),
+    };
   },
 
   /** What has been deleted and can still be had back. */

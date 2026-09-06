@@ -132,6 +132,51 @@ export async function readResult(userId: string, robot: string, at: string): Pro
   }
 }
 
+/**
+ * Everything every scraper of one account brought back since a moment.
+ *
+ * The one-scraper calls answer "what did this one do" — which is what a person on the page wants and
+ * exactly the wrong shape for a machine downstream, which does not care which of seventeen scrapers a
+ * posting came from and would otherwise ask seventeen times, then once more per run, to find out that
+ * on most days most of them brought back nothing. One question, one answer, and the run each row came
+ * out of travels with it so the far side can tell today's harvest from yesterday's.
+ *
+ * `since` is exclusive, so handing back the `until` of the last harvest asks for exactly what is new.
+ */
+export async function harvestSince(
+  userId: string,
+  since: string,
+): Promise<Array<{ scraper: string; at: string; rows: Kept['rows'] }>> {
+  if (usingDatabase()) {
+    const pool = await db();
+    const { rows } = await pool.query<{ scraper: string; at: Date; rows: Kept['rows'] }>(
+      'SELECT scraper, at, rows FROM results WHERE user_id = $1 AND at > $2 ORDER BY at',
+      [userId, since],
+    );
+    return rows.map((one) => ({ scraper: one.scraper, at: one.at.toISOString(), rows: one.rows }));
+  }
+
+  // The file store keeps a directory per scraper, named the way a file may be named, so a scraper
+  // called "jobs (EU)" answers here as "jobs--EU-". That is the store for a laptop and the tests; a
+  // server installation has the database, where the name is the name.
+  let scrapers: string[];
+  try {
+    scrapers = await readdir(resultsDirFor(userId));
+  } catch {
+    return [];
+  }
+
+  const harvest = [];
+  for (const scraper of scrapers) {
+    for (const run of await keptRuns(userId, scraper)) {
+      if (run.at <= since) continue;
+      const kept = await readResult(userId, scraper, run.at);
+      if (kept) harvest.push({ scraper, at: kept.at, rows: kept.rows });
+    }
+  }
+  return harvest.sort((one, other) => one.at.localeCompare(other.at));
+}
+
 /** When a scraper goes, so does what it brought back. */
 export async function forgetResults(userId: string, robot: string): Promise<void> {
   if (usingDatabase()) {

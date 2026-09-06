@@ -91,3 +91,29 @@ test('deleting a scraper takes what it brought back with it', async () => {
   await forgetResults('u1', 'jobs');
   assert.deepEqual(await keptRuns('u1', 'jobs'), []);
 });
+
+test('one question gets the whole harvest, whichever scraper brought it', async () => {
+  const { keepResult, harvestSince } = await load();
+
+  await keepResult('u1', 'jobs', { at: '2026-09-04T08:00:00.000Z', status: 'ok', rows: rows(2), pagesVisited: 1 });
+  await keepResult('u1', 'boards', { at: '2026-09-04T09:00:00.000Z', status: 'ok', rows: rows(1), pagesVisited: 1 });
+  await keepResult('u2', 'jobs', { at: '2026-09-04T09:30:00.000Z', status: 'ok', rows: rows(5), pagesVisited: 1 });
+
+  const harvest = await harvestSince('u1', '2026-09-04T00:00:00.000Z');
+  assert.deepEqual(
+    harvest.map((run) => [run.scraper, run.rows.length]),
+    [['jobs', 2], ['boards', 1]],
+    'both scrapers, oldest run first, and nothing belonging to another account',
+  );
+});
+
+test('a harvest asks for what is new, not for the same rows again tomorrow', async () => {
+  const { keepResult, harvestSince } = await load();
+
+  await keepResult('u1', 'jobs', { at: '2026-09-04T08:00:00.000Z', status: 'ok', rows: rows(2), pagesVisited: 1 });
+  await keepResult('u1', 'jobs', { at: '2026-09-05T08:00:00.000Z', status: 'ok', rows: rows(3), pagesVisited: 1 });
+
+  const harvest = await harvestSince('u1', '2026-09-04T08:00:00.000Z');
+  assert.equal(harvest.length, 1, 'the run named as the boundary is behind it, not in it');
+  assert.equal(harvest[0].rows.length, 3);
+});

@@ -112,3 +112,21 @@ when('the rows are stored as data, not as a string of it', async () => {
   );
   assert.equal(found[0].n, 3, '"every posting mentioning Madrid" is a query, which was the whole argument');
 });
+
+when('the whole harvest comes back in one question, in the order it happened', async () => {
+  const { keepResult, harvestSince } = await load();
+
+  await keepResult(account, 'jobs', { at: '2026-09-04T08:00:00.000Z', status: 'ok', rows: rows(2), pagesVisited: 1 });
+  await keepResult(account, 'other', { at: '2026-09-04T09:00:00.000Z', status: 'ok', rows: rows(1), pagesVisited: 1 });
+
+  const harvest = await harvestSince(account, '2026-09-04T08:00:00.000Z');
+  assert.deepEqual(
+    harvest.map((run) => [run.scraper, run.rows.length]),
+    [['other', 1]],
+    'since is exclusive, so yesterday cannot be sent twice',
+  );
+
+  const all = await harvestSince(account, '2026-09-03T00:00:00.000Z');
+  assert.deepEqual(all.map((run) => run.scraper), ['jobs', 'other']);
+  assert.equal(all[0].rows[0].city, 'Madrid', 'and the rows come back as rows, not as a count');
+});
