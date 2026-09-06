@@ -91,6 +91,45 @@ evidence, so a walk that keeps returning the same rows is visible rather than qu
 This is about one run. Whether the same posting is handed over again on the NEXT run is
 [`remember`](#remember), and the two are independent.
 
+## `remember`
+
+```json
+{ "remember": { "mode": "new", "by": "link", "days": 30 } }
+```
+
+Off unless you ask for it. A scraper without `remember` hands over everything it finds, every run —
+which is right for anyone who wants the whole picture each time, or who is counting how often something
+reappears. Turn it on and a row already handed over is not handed over again; what comes back is what
+is new.
+
+- `mode` — `new` returns only what has not been seen, which is the point of remembering. `all` returns
+  everything and marks the repeats with `seenBefore` and `timesSeen`.
+- `days` — how long a row is remembered after it was last seen. Default 30. A posting that vanished for
+  two months and came back is news again.
+- `by` — which column identifies a row. Leave it out and the scraper decides, which is almost always
+  what you want.
+
+### What identifies a row
+
+Left to itself, a **page walk** is identified by its link: a job board gives a posting an address and
+keeps it, so the address is the honest key. Where there is no link, the beginning of the row's text is
+fingerprinted instead — the beginning, because a bump ("UP", "still open") is appended, and what
+somebody wrote first is what identifies what they wrote.
+
+A **channel** is the other way round. A message's link and its number address the *message*, not what
+the message says: the same advert pushed out again tomorrow arrives as a new message with a new number,
+and a memory keyed on that lets a daily reposter through daily. So a Telegram scraper identifies a post
+by its text and by nothing else about it.
+
+If that is wrong for your channel — you are watching for *events* and the same words twice mean twice —
+name the column yourself:
+
+```json
+{ "remember": { "mode": "new", "by": "link" } }
+```
+
+which is per-message identity, said out loud. `by` is obeyed everywhere and overrules all of the above.
+
 ## A quiet day
 
 A scraper that remembers spends most of its life finding rows it has already handed over. That run

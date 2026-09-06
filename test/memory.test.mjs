@@ -179,3 +179,14 @@ test('two different jobs in one channel stay two, and a named column still wins'
   // Somebody who says which column identifies their source knows their source; that is not overruled.
   assert.equal(identityOfMessage(one, 'id'), identityOfMessage({ ...one, text: 'rewritten' }, 'id'));
 });
+
+test('a channel watched for events can ask for per-message identity back', () => {
+  // Identifying a post by what it says is a default, not a decision taken away: someone watching a
+  // channel where the same words twice mean twice says so, and gets exactly the old behaviour.
+  const said = 'the gate is open';
+  const first = meet([message(said, '101')], {}, { by: 'link' }, new Date('2026-09-06T04:00:00Z'), identityOfMessage);
+  const again = meet([message(said, '742')], first.memory, { by: 'link' }, new Date('2026-09-07T04:00:00Z'), identityOfMessage);
+
+  assert.equal(again.fresh.length, 1, 'a second message is a second event, whatever it repeats');
+  assert.equal(again.repeated.length, 0);
+});
