@@ -37,6 +37,11 @@ export async function runRobot(
     ask?: (prompt: string) => Promise<string>;
     /** How to put a question to a JSON feed. Injected so a test never reaches the network. */
     askJson?: AskJson;
+    /**
+     * Somewhere to write down everything this pass saw, before the memory decides what is new.
+     * That is what a catalogue is made of, and it cannot be reconstructed from what was handed on.
+     */
+    saw?: (rows: Array<Record<string, string | null>>) => Promise<void>;
     /** What this robot has seen before, and somewhere to put what it sees now. */
     memory?: { seen: Record<string, Seen>; save: (memory: Record<string, Seen>) => Promise<void> };
   },
@@ -59,6 +64,7 @@ export async function runRobot(
         ...(sifted.note ? { evidence: { blocksSeen: rows.length, missingFields: {}, url: robot.channels.join(', ') } } : {}),
       };
     }
+    await options.saw?.(sifted.rows);
     const seen = await remember(sifted.rows, robot.remember, options.memory, identityOfMessage);
     if (seen.rows.length === 0 && seen.note) {
       // Everything that came was something we already had. That is not an empty channel and not a
@@ -92,6 +98,7 @@ export async function runRobot(
     }
 
     const sifted = await applySift(feed.rows, (robot as { sift?: Sift }).sift, options.ask);
+    await options.saw?.(sifted.rows);
     const seen = await remember(sifted.rows, robot.remember, options.memory);
     const why = [feed.reason, sifted.note, seen.note].filter(Boolean).join('; ');
     if (seen.rows.length === 0 && seen.note) {
@@ -131,6 +138,7 @@ export async function runRobot(
     return { ...run, status: 'empty', rows: [], reason: `the sift kept none of the ${run.rows.length} rows` };
   }
 
+  await options.saw?.(sifted.rows);
   const seen = await remember(sifted.rows, robot.remember, options.memory);
   const reason = [sifted.note, seen.note].filter(Boolean).join('; ');
   if (seen.rows.length === 0 && seen.note) {

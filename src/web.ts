@@ -32,6 +32,7 @@ import {
   isBrowserRobot,
   saveRobot,
 } from './robots.js';
+import { catalogueOf, forgetCatalogue, goneFrom } from './catalogue.js';
 import { photosFor } from './photos.js';
 import { loadRules, type SiteRule } from './rules.js';
 import {
@@ -614,6 +615,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     const removed = await deleteRobot(name, dir);
     // Its memory of what it has seen goes too: keeping it would silence a scraper recreated later.
     await rm(memoryFileFor(user.id, name), { force: true }).catch(() => undefined);
+    await forgetCatalogue(user.id, name).catch(() => undefined);
     await forgetResults(user.id, name).catch(() => undefined);
     if (usingDatabase()) await forgetSchedule(user.id, name).catch(() => undefined);
 
@@ -819,6 +821,63 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     if (asked.length > 500) throw new InputError('five hundred at a time, no more');
 
     return { name, photos: await photosFor(name, asked) };
+  },
+
+  /**
+   * What the source holds now — not what a run brought back.
+   *
+   * A scraper that remembers hands over only what is new, so its runs are increments and the source
+   * itself is in none of them. This is the source: every row the last pass saw, whether or not it had
+   * been handed on before. Paged by id, because a source can be large and an answer should not be.
+   */
+  '/api/catalogue': async (body, user) => {
+    const name = String(body['name'] ?? '');
+    const robot = await loadRobot(name, robotsDirFor(user.id));
+    if (!(robot as { catalogue?: string }).catalogue) {
+      throw new InputError(`${name} does not keep a catalogue — say which column identifies its rows to start one`);
+    }
+
+    const listed = await catalogueOf(user.id, name, {
+      limit: Number(body['limit'] ?? 1000),
+      ...(body['after'] ? { after: String(body['after']) } : {}),
+    });
+    return {
+      name,
+      listed: listed.length,
+      ...(listed.length ? { next: listed[listed.length - 1]!.id } : {}),
+      rows: listed,
+    };
+  },
+
+  /**
+   * What the source has stopped holding.
+   *
+   * Exact rather than guessed: a row is gone when the last pass did not see it, and the catalogue
+   * knows that because it wrote down what that pass saw. Nothing is opened to answer this.
+   */
+  '/api/vanished': async (body, user) => {
+    const name = String(body['name'] ?? '');
+    const robot = await loadRobot(name, robotsDirFor(user.id));
+    if (!(robot as { catalogue?: string }).catalogue) {
+      throw new InputError(`${name} does not keep a catalogue, so nothing can be said about what left it`);
+    }
+
+    const asked = String(body['since'] ?? '').trim();
+    const runs = await keptRuns(user.id, name);
+    const since = asked || runs[0]?.at;
+    if (!since) throw new InputError(`${name} has not completed a pass yet`);
+    if (Number.isNaN(Date.parse(since))) throw new InputError(`"${asked}" is not a time`);
+
+    const gone = await goneFrom(user.id, name, since);
+    return {
+      since,
+      gone: gone.length,
+      ids: gone.slice(0, Number(body['limit'] ?? 5000)).map((one) => ({
+        id: one.id,
+        firstSeen: one.firstSeen,
+        lastSeen: one.lastSeen,
+      })),
+    };
   },
 
   /** What has been deleted and can still be had back. */

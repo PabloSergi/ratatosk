@@ -61,6 +61,7 @@ services:
       RATATOSK_MEMORY: /app/memory
       RATATOSK_RESULTS: /app/results
       RATATOSK_IMAGES: /app/images
+      RATATOSK_CATALOGUE: /app/catalogue
       # With this set, runs are kept in Postgres; without it, in files. Nothing else decides.
       RATATOSK_DB: postgres://${POSTGRES_USER:-ratatosk}:${POSTGRES_PASSWORD:-ratatosk}@db:5432/${POSTGRES_DB:-ratatosk}
       RATATOSK_REDIS: redis://queue:6379
@@ -76,6 +77,8 @@ services:
       - ./results:/app/results
       # Photographs brought here instead of pointed at: a board's CDN is not our CDN.
       - ./images:/app/images
+      # What each source HOLDS, as opposed to what a run brought back. See docs/scenario.md.
+      - ./catalogue:/app/catalogue
       - ./rules:/app/rules:ro
       - browser-profiles:/app/profiles
       # The Telegram session belongs to whoever logged in — it lives here and nowhere else.
@@ -120,6 +123,8 @@ services:
       - ./results:/app/results
       # Photographs brought here instead of pointed at: a board's CDN is not our CDN.
       - ./images:/app/images
+      # What each source HOLDS, as opposed to what a run brought back. See docs/scenario.md.
+      - ./catalogue:/app/catalogue
       - ./rules:/app/rules:ro
       - browser-profiles:/app/profiles
       - account-secrets:/app/secrets

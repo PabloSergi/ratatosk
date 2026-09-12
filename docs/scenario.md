@@ -130,6 +130,37 @@ name the column yourself:
 
 which is per-message identity, said out loud. `by` is obeyed everywhere and overrules all of the above.
 
+## `catalogue`
+
+```json
+{ "catalogue": "id" }
+```
+
+Off unless you name a column. What it names is the one that identifies a row on the source — an id, a
+permalink, a listing number. Something that means the same thing tomorrow.
+
+With it, the scraper keeps a second thing beside its runs: **what the source holds**, as opposed to
+what a run brought back. Every row a pass saw goes in, whether or not it was handed on, with the day
+it was first seen and the day it was last seen.
+
+The difference matters as soon as [`remember`](#remember) is on. A scraper that remembers hands over
+increments — fifty rows this hour, of a source that has thirty thousand. The journal of runs is
+therefore a journal of increments, and adding those runs back together gives the source only until the
+oldest of them ages out. After that a source of thirty thousand quietly reads as a source of fifty,
+with no error anywhere, and whatever tidies up behind it deletes the rest.
+
+Two things then become answerable exactly, and neither opens a page:
+
+    POST /api/catalogue   { "name": "…", "limit": 1000, "after": "…" }
+    POST /api/vanished    { "name": "…" }
+
+`/api/catalogue` is the source, paged by id — hand back the `next` from one answer to get the following
+page. `/api/vanished` is what the last pass did not see: let, taken down, sold. Not a guess from the
+absence of rows in a run, which is what an increment always looks like.
+
+Leave it out where rows have no lasting identity — a source whose rows are known only by a fingerprint
+of their own text cannot be catalogued, and a catalogue of those would be new every time it is read.
+
 ## A quiet day
 
 A scraper that remembers spends most of its life finding rows it has already handed over. That run

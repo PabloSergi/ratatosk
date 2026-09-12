@@ -7,6 +7,7 @@ import { log } from './log.js';
 import { memoryFileFor, readMemory, writeMemory, type Seen } from './memory.js';
 import { findProxy, proxiesFileFor, toRunningBrowser } from './proxies.js';
 import { robotsDirFor } from './auth.js';
+import { keepSeen } from './catalogue.js';
 import { isBrowserRobot, loadRobot } from './robots.js';
 import { keepResult } from './results.js';
 import type { RunResult } from './run.js';
@@ -86,6 +87,14 @@ export async function runForAccount(userId: string, name: string, options: RunOp
     ? { seen: await readMemory(memoryFile), save: (next: Record<string, Seen>) => writeMemory(memoryFile, next) }
     : undefined;
 
+  // What the source holds, as opposed to what this run hands over. A scraper that remembers returns
+  // increments, and increments cannot be added back up into a source — the oldest of them ages out.
+  const catalogued = (robot as { catalogue?: string }).catalogue;
+  const startedAt = new Date().toISOString();
+  const saw = catalogued
+    ? (rows: Array<Record<string, string | null>>) => keepSeen(userId, robot.name, rows, catalogued, startedAt).then(() => undefined)
+    : undefined;
+
   const run = await options.pool.use(poolKey(userId, isBrowserRobot(robot) ? robot.proxy : undefined), (session) =>
     runRobot(robot, {
       page: async () => session.page,
@@ -94,6 +103,7 @@ export async function runForAccount(userId: string, name: string, options: RunOp
       telegramSession,
       ...(ask ? { ask } : {}),
       ...(memory ? { memory } : {}),
+      ...(saw ? { saw } : {}),
     }),
   );
 

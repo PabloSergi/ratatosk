@@ -68,6 +68,18 @@ CREATE TABLE IF NOT EXISTS schedules (
 );
 
 CREATE INDEX IF NOT EXISTS schedules_due ON schedules (next_at) WHERE paused = false;
+
+CREATE TABLE IF NOT EXISTS catalogue (
+  user_id    TEXT        NOT NULL,
+  scraper    TEXT        NOT NULL,
+  id         TEXT        NOT NULL,
+  row        JSONB       NOT NULL,
+  first_seen TIMESTAMPTZ NOT NULL,
+  last_seen  TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (user_id, scraper, id)
+);
+
+CREATE INDEX IF NOT EXISTS catalogue_gone ON catalogue (user_id, scraper, last_seen);
 `;
 
 export async function db(): Promise<Pool> {
