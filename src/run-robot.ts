@@ -5,7 +5,7 @@ import { runScenario, type RunResult } from './run.js';
 import { identityOfMessage, meet, type Remember, type Row, type Seen } from './memory.js';
 import { judgeLeftovers, judgeSift, sift, type Sift } from './sift.js';
 import { isTelegramRobot, runTelegramRobot } from './telegram.js';
-import { asker, isApiRobot, runApiRobot, type AskJson } from './api.js';
+import { asker, deepen, isApiRobot, runApiRobot, type AskJson } from './api.js';
 
 /**
  * One way to run a robot, whatever it reads. Callers — the web view, the MCP server, cron — ask for
@@ -86,7 +86,19 @@ export async function runRobot(
       // Everything the feed held had already been handed over. A quiet hour, not a dead source.
       return { status: 'empty', quiet: true, rows: [], pagesVisited: feed.calls, reason: why };
     }
-    return { status: 'ok', rows: seen.rows, pagesVisited: feed.calls, ...(why ? { reason: why } : {}) };
+
+    // Only what is being handed on goes one level deeper: a call per row is affordable for an hour's
+    // new listings and not for the whole board, and the whole board was already deepened once.
+    const deeper = robot.detail
+      ? await deepen(seen.rows, robot.detail, options.askJson ?? asker())
+      : { rows: seen.rows, calls: 0 };
+
+    return {
+      status: 'ok',
+      rows: deeper.rows,
+      pagesVisited: feed.calls + deeper.calls,
+      ...(why ? { reason: why } : {}),
+    };
   }
 
   const scenario =

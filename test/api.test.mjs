@@ -105,3 +105,56 @@ test('a row comes out flat, whatever shape the feed had', () => {
   assert.equal(row.who, 'x');
   assert.equal(row.gone, null);
 });
+
+/**
+ * A list is built to be cheap and wide, so it leaves things out. What it leaves out is often what
+ * decides the thing — the deposit, the number of bathrooms, when the advert first went up as opposed
+ * to when it was last pushed back to the top.
+ */
+test('what the list will not say is asked for one row at a time', async () => {
+  const { deepen } = await import('../src/api.ts');
+
+  const asked = [];
+  const ask = async (href) => {
+    asked.push(href);
+    const id = href.split('/').pop();
+    return { ad: { deposit: Number(id) * 2, toilets: 2, orig_list_time: 1789000000000 } };
+  };
+
+  const rows = [{ id: '11', price: '100' }, { id: '22', price: '200' }];
+  const done = await deepen(rows, {
+    url: 'https://example.test/v1/ads/{id}',
+    fields: { deposit: 'ad.deposit', toilets: 'ad.toilets', posted_at: 'ad.orig_list_time' },
+  }, ask);
+
+  assert.deepEqual(asked, ['https://example.test/v1/ads/11', 'https://example.test/v1/ads/22']);
+  assert.equal(done.rows[0].deposit, '22', 'the deeper answer is merged onto the row it belongs to');
+  assert.equal(done.rows[1].toilets, '2');
+  assert.equal(done.rows[0].price, '100', 'and what the list already said is left alone');
+  assert.equal(done.calls, 2);
+});
+
+test('a row that will not deepen keeps what the list gave it', async () => {
+  const { deepen } = await import('../src/api.ts');
+
+  const ask = async (href) => {
+    if (href.endsWith('22')) throw new Error('502');
+    return { ad: { deposit: 7 } };
+  };
+  const rows = [{ id: '11', price: '100' }, { id: '22', price: '200' }];
+  const done = await deepen(rows, { url: 'https://example.test/{id}', fields: { deposit: 'ad.deposit' } }, ask);
+
+  assert.equal(done.rows[0].deposit, '7');
+  assert.equal(done.rows[1].deposit, undefined, 'nothing invented where the source refused');
+  assert.equal(done.rows[1].price, '200');
+});
+
+test('the cap is real: a board is not deepened row by row for ever', async () => {
+  const { deepen } = await import('../src/api.ts');
+  let calls = 0;
+  const ask = async () => { calls++; return { ad: { deposit: 1 } }; };
+
+  const rows = Array.from({ length: 50 }, (_, index) => ({ id: String(index) }));
+  await deepen(rows, { url: 'https://example.test/{id}', fields: { deposit: 'ad.deposit' }, maxRows: 10 }, ask);
+  assert.equal(calls, 10);
+});

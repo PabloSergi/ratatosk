@@ -46,7 +46,47 @@ export interface ApiRobot {
   pauseMs?: number;
   /** A ceiling on calls, so a source that changes its mind cannot spin here forever. */
   maxCalls?: number;
+  /** What the list does not carry. See `deepen`. */
+  detail?: ApiDetail;
   remember?: { by?: string; days?: number; mode?: 'new' | 'all' };
+}
+
+/**
+ * The second answer, for what a list will not say.
+ *
+ * A listing feed is built to be cheap and wide, so it leaves things out — the deposit, how many
+ * bathrooms, when the advert was FIRST put up rather than last pushed back to the top. Those live
+ * behind one more address, one listing at a time, and that is a call per row: fine for the handful a
+ * run hands over, ruinous for a whole board every hour. So it runs after the memory, on what is
+ * actually being passed on, and never on what was already known.
+ */
+export interface ApiDetail {
+  /** The address of one row, with {column} standing in for that row's own value. */
+  url: string;
+  /** Extra columns ← dotted paths into the deeper answer. */
+  fields: Record<string, string>;
+  /** A cap, because every row here is a request. */
+  maxRows?: number;
+  pauseMs?: number;
+}
+
+export async function deepen(rows: Row[], detail: ApiDetail, ask: AskJson): Promise<{ rows: Row[]; calls: number }> {
+  let calls = 0;
+  const cap = detail.maxRows ?? 500;
+
+  for (const row of rows.slice(0, cap)) {
+    const where = detail.url.replace(/\{(\w+)\}/g, (_, column: string) => encodeURIComponent(row[column] ?? ''));
+    if (where.includes('//') && /\{\w+\}/.test(where)) continue;
+
+    try {
+      calls++;
+      Object.assign(row, readRow(await ask(where), detail.fields));
+    } catch {
+      // A row that will not deepen is still an honest row: it keeps what the list gave.
+    }
+    if (detail.pauseMs) await rest(detail.pauseMs);
+  }
+  return { rows, calls };
 }
 
 export function isApiRobot(value: unknown): value is ApiRobot {
