@@ -17,8 +17,10 @@
  * Usage: RATATOSK_KEY=… node scripts/fetch-images.mjs <scraper> [--set webp|medium|full]
  *                                                     [--dir PATH] [--parallel N] [--base URL]
  */
-import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+
+import { phash } from '../dist/phash.js';
 
 const [scraper] = process.argv.slice(2);
 const which = argOf('--set') ?? 'webp';
@@ -85,47 +87,70 @@ for (const run of kept) {
 }
 console.log(`${scraper}: ${wanted.size} listings, set "${which}"`);
 
-const work = [];
-for (const [id, addresses] of wanted) {
-  addresses.forEach((address, index) => work.push({ id, address, index }));
-}
-
-const tally = { had: 0, got: 0, failed: 0, bytes: 0 };
+// A listing at a time, not a file at a time: its fingerprints are written once, beside its pictures,
+// and a listing already complete is skipped without touching the network or the decoder.
+const work = [...wanted.entries()];
+const tally = { had: 0, got: 0, failed: 0, bytes: 0, listings: 0 };
 let cursor = 0;
 
 async function worker() {
   while (cursor < work.length) {
-    const one = work[cursor++];
-    const ending = (one.address.split('?')[0].match(/\.(webp|jpe?g|png)$/i) ?? ['.jpg'])[0];
-    const into = join(root, one.id);
-    const file = join(into, `${one.index}${ending}`);
+    const [id, addresses] = work[cursor++];
+    const into = join(root, id);
+    const noteFile = join(into, 'photos.json');
 
-    try {
-      const already = await stat(file).catch(() => undefined);
-      if (already && already.size > 0) {
-        tally.had++;
-        continue;
-      }
-      const answer = await fetch(one.address);
-      if (!answer.ok) throw new Error(String(answer.status));
-      const bytes = Buffer.from(await answer.arrayBuffer());
-
-      await mkdir(into, { recursive: true });
-      // Beside, then into place: a run that dies mid-write leaves no half-picture behind.
-      const beside = `${file}.writing`;
-      await writeFile(beside, bytes);
-      await rename(beside, file);
-
-      tally.got++;
-      tally.bytes += bytes.length;
-    } catch {
-      tally.failed++;
+    const note = await readFile(noteFile, 'utf8').then(JSON.parse).catch(() => undefined);
+    if (note && note.files?.length === addresses.length) {
+      tally.had += addresses.length;
+      tally.listings++;
+      continue;
     }
 
-    const done = tally.had + tally.got + tally.failed;
-    if (done % 500 === 0) {
-      console.log(`${done}/${work.length}  new ${tally.got}  had ${tally.had}  failed ${tally.failed}` +
-        `  ·  ${(tally.bytes / 1e6).toFixed(0)} MB fetched`);
+    const files = [];
+    const hashes = [];
+    for (const [index, address] of addresses.entries()) {
+      const ending = (address.split('?')[0].match(/\.(webp|jpe?g|png)$/i) ?? ['.jpg'])[0];
+      const file = join(into, `${index}${ending}`);
+
+      try {
+        let bytes;
+        const already = await stat(file).catch(() => undefined);
+        if (already && already.size > 0) {
+          bytes = await readFile(file);
+          tally.had++;
+        } else {
+          const answer = await fetch(address);
+          if (!answer.ok) throw new Error(String(answer.status));
+          bytes = Buffer.from(await answer.arrayBuffer());
+
+          await mkdir(into, { recursive: true });
+          // Beside, then into place: a run that dies mid-write leaves no half-picture behind.
+          const beside = `${file}.writing`;
+          await writeFile(beside, bytes);
+          await rename(beside, file);
+
+          tally.got++;
+          tally.bytes += bytes.length;
+        }
+
+        files.push(`${index}${ending}`);
+        // The fingerprint is taken here because the bytes are here. Asking for them again later, only
+        // to hash them, is the whole download done twice.
+        const fingerprint = await phash(bytes);
+        if (fingerprint) hashes.push(fingerprint);
+      } catch {
+        tally.failed++;
+      }
+    }
+
+    if (files.length) {
+      await writeFile(noteFile, `${JSON.stringify({ files, phash: hashes })}\n`, 'utf8');
+    }
+    tally.listings++;
+
+    if (tally.listings % 500 === 0) {
+      console.log(`${tally.listings}/${work.length} listings  new ${tally.got}  had ${tally.had}` +
+        `  failed ${tally.failed}  ·  ${(tally.bytes / 1e6).toFixed(0)} MB`);
     }
   }
 }

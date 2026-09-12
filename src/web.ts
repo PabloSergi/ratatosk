@@ -32,6 +32,7 @@ import {
   isBrowserRobot,
   saveRobot,
 } from './robots.js';
+import { photosFor } from './photos.js';
 import { loadRules, type SiteRule } from './rules.js';
 import {
   addProxy,
@@ -799,6 +800,25 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
         run.rows.map((fields) => ({ scraper: run.scraper, kind: kinds.get(run.scraper) ?? 'web', at: run.at, fields })),
       ),
     };
+  },
+
+  /**
+   * The pictures a scraper has brought here, and what they look like.
+   *
+   * Whoever carries a listing onward needs two things this holds and the listing itself does not: our
+   * own address for each photograph, because pointing the world at the board's CDN is how a board
+   * stops answering, and the fingerprints, because only the pictures survive the same flat being
+   * advertised three times in three wordings.
+   */
+  '/api/photos': async (body, user) => {
+    const name = String(body['name'] ?? '');
+    await loadRobot(name, robotsDirFor(user.id));
+
+    const asked = Array.isArray(body['ids']) ? (body['ids'] as unknown[]).map(String) : [];
+    if (asked.length === 0) throw new InputError('say which listings');
+    if (asked.length > 500) throw new InputError('five hundred at a time, no more');
+
+    return { name, photos: await photosFor(name, asked) };
   },
 
   /** What has been deleted and can still be had back. */
