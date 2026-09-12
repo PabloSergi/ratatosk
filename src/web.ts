@@ -32,7 +32,6 @@ import {
   isBrowserRobot,
   saveRobot,
 } from './robots.js';
-import { revealPhone } from './contact.js';
 import { loadRules, type SiteRule } from './rules.js';
 import {
   addProxy,
@@ -800,59 +799,6 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
         run.rows.map((fields) => ({ scraper: run.scraper, kind: kinds.get(run.scraper) ?? 'web', at: run.at, fields })),
       ),
     };
-  },
-
-  /**
-   * The number to ring about one listing.
-   *
-   * Boards mask it until somebody presses for it, and that is a cost on collecting them in bulk worth
-   * respecting rather than defeating: this opens one listing, presses once, and keeps the answer for a
-   * few hours. A card somebody is about to call from asks here; a nightly harvest does not.
-   */
-  '/api/contact': async (body, user) => {
-    const url = String(body['url'] ?? '').trim();
-    if (!/^https?:\/\//.test(url)) throw new InputError('give the address of the listing');
-    const clickText = String(body['clickText'] ?? '').trim();
-    if (!clickText) throw new InputError('say what the control says — it is found by its words, not by a selector');
-
-    // A board that has stopped answering is usually not refusing us, it is refusing this address: a
-    // few dozen listings in a few minutes from one machine reads as exactly what it is. Which way out
-    // we go is part of the question, and each way out keeps its own profile and its own check.
-    const proxyId = body['proxy'] ? String(body['proxy']) : undefined;
-    if (proxyId && !(await findProxy(proxiesFileFor(user.id), proxyId))) throw new InputError('no such proxy');
-
-    return pool.use(poolKey(user.id, proxyId), (session) =>
-      revealPhone(session.page, url, { userId: user.id, clickText }),
-    );
-  },
-
-  /**
-   * What this scraper has stopped seeing.
-   *
-   * The cheap half of keeping a board current. What is new costs a run; what is gone costs nothing at
-   * all — it is already in the memory, as rows whose last sighting is older than the last pass. No
-   * page is opened and no control is pressed to answer this.
-   *
-   * `since` is the moment the last complete pass began. Without one, the last run's own time is used,
-   * which is what somebody asking "what went since yesterday" almost always means.
-   */
-  '/api/vanished': async (body, user) => {
-    const name = String(body['name'] ?? '');
-    await loadRobot(name, robotsDirFor(user.id));
-
-    const asked = String(body['since'] ?? '').trim();
-    const runs = await keptRuns(user.id, name);
-    // The run BEFORE the last one, not the last one. A run's time is when its rows were kept, and the
-    // memory is written earlier, while the run is still walking — so measuring against the latest run
-    // marks everything it ever met as gone. A row that missed a whole pass is the honest boundary.
-    const since = asked || runs[1]?.at;
-    if (!since) {
-      throw new InputError(`${name} has completed fewer than two passes — there is nothing to compare against yet`);
-    }
-    if (Number.isNaN(Date.parse(since))) throw new InputError(`"${asked}" is not a time`);
-
-    const gone = vanished(await readMemory(memoryFileFor(user.id, name)), since);
-    return { since, gone: gone.length, ids: gone.slice(0, Number(body['limit'] ?? 5000)) };
   },
 
   /** What has been deleted and can still be had back. */

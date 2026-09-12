@@ -172,3 +172,25 @@ test('a second look never overwrites what the list gave with its own silence', a
   assert.equal(rows[0].toilets, '2', 'what it did say lands');
   assert.equal(rows[0].posted_at, '1789000000000', 'and what it did not say leaves the list alone');
 });
+
+test('a scraper told to carry no numbers hands over none', async () => {
+  const { runRobot } = await import('../src/run-robot.ts');
+
+  const source = {
+    total: 1,
+    ads: [{ list_id: 7, subject: 'Cho thuê 2PN, LH 0908765432', body: 'Zalo 0356789012, giá 12.000.000đ' }],
+  };
+  const robot = {
+    name: 'flats', version: 1, source: 'api', mask: true,
+    url: 'https://example.test/ads', rowsAt: 'ads', totalAt: 'total',
+    page: { param: 'o', sizeParam: 'limit', size: 50 },
+    identity: 'list_id',
+    fields: { id: 'list_id', title_vi: 'subject', body_vi: 'body' },
+  };
+
+  const run = await runRobot(robot, { page: async () => { throw new Error('браузер тут не нужен'); }, askJson: async () => source });
+
+  assert.equal(run.status, 'ok');
+  assert.ok(!/0908765432|0356789012/.test(JSON.stringify(run.rows)), 'ни одного телефона в том, что отдано');
+  assert.ok(run.rows[0].body_vi.includes('12.000.000'), 'а цена на месте');
+});

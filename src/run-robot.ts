@@ -6,6 +6,7 @@ import { identityOfMessage, meet, type Remember, type Row, type Seen } from './m
 import { judgeLeftovers, judgeSift, sift, type Sift } from './sift.js';
 import { isTelegramRobot, runTelegramRobot } from './telegram.js';
 import { asker, deepen, isApiRobot, runApiRobot, type AskJson } from './api.js';
+import { maskRow } from './mask.js';
 
 /**
  * One way to run a robot, whatever it reads. Callers — the web view, the MCP server, cron — ask for
@@ -14,6 +15,17 @@ import { asker, deepen, isApiRobot, runApiRobot, type AskJson } from './api.js';
  *
  * The browser is passed as a function so that a Telegram robot never starts one.
  */
+/**
+ * Take the phone numbers out, when this scraper is one that must not carry them.
+ *
+ * A choice per source rather than a rule for all: a board of flats has no business keeping somebody's
+ * mobile, and a board of vacancies is scraped precisely so an employer can be written to. Both are
+ * legitimate, and the difference is not something the engine can guess.
+ */
+function withoutNumbers(robot: Robot, rows: Array<Record<string, string | null>>): Array<Record<string, string | null>> {
+  return (robot as { mask?: boolean }).mask ? rows.map(maskRow) : rows;
+}
+
 export async function runRobot(
   robot: Robot,
   options: {
@@ -62,7 +74,7 @@ export async function runRobot(
 
     return {
       status: 'ok',
-      rows: seen.rows,
+      rows: withoutNumbers(robot, seen.rows),
       pagesVisited: robot.channels.length,
       ...(sifted.note || seen.note ? { reason: [sifted.note, seen.note].filter(Boolean).join('; ') } : {}),
     };
@@ -95,7 +107,7 @@ export async function runRobot(
 
     return {
       status: 'ok',
-      rows: deeper.rows,
+      rows: withoutNumbers(robot, deeper.rows),
       pagesVisited: feed.calls + deeper.calls,
       ...(why ? { reason: why } : {}),
     };
@@ -125,7 +137,7 @@ export async function runRobot(
     // The same quiet day on a page walk: rows were found, and every one of them had been handed over.
     return { ...run, status: 'empty', quiet: true, rows: [], reason };
   }
-  return { ...run, rows: seen.rows, ...(reason ? { reason } : {}) };
+  return { ...run, rows: withoutNumbers(robot, seen.rows), ...(reason ? { reason } : {}) };
 }
 
 /**
