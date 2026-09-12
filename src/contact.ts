@@ -10,12 +10,18 @@
  * opened a card and is dialling will open it again, and the board should not be asked twice for that.
  */
 import type { PageDriver } from './driver.js';
+import { challengeSeen } from './run.js';
 
 export interface Contact {
   phone: string | null;
   at: string;
   /** Said when the number did not come, so a blank is never mistaken for "they left no number". */
   reason?: string;
+  /**
+   * What is standing in the way, when what came back was a check rather than the listing. A door is
+   * not a missing number: somebody has to walk through it once, and then this works.
+   */
+  door?: string;
 }
 
 /** Long enough that a person keeps their answer, short enough that a re-let is not called about. */
@@ -70,8 +76,14 @@ export async function revealPhone(
 
   const pressed = await page.evaluate<boolean>(PRESS_SOURCE, options.clickText);
   if (!pressed) {
-    const missing: Contact = { phone: null, at, reason: `nothing on the page says "${options.clickText}"` };
-    known.set(url, missing);
+    // "No such control" and "we never reached the listing" look identical from here and are not the
+    // same problem at all. One is a scraper to fix; the other is a door for a person to walk through.
+    const door = await challengeSeen(page);
+    const missing: Contact = door
+      ? { phone: null, at, door, reason: `the board asked us to prove we are human: ${door}` }
+      : { phone: null, at, reason: `nothing on the page says "${options.clickText}"` };
+    // A door is not an answer, and must not be remembered as one.
+    if (!door) known.set(url, missing);
     return missing;
   }
 

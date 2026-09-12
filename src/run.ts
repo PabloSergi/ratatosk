@@ -364,7 +364,7 @@ async function goToNextPage(
 const PAGE_TURN_TIMEOUT_MS = 10_000;
 
 /** The same words look.ts watches for, asked of a page that gave us nothing. */
-async function challengeSeen(page: PageDriver): Promise<string | undefined> {
+export async function challengeSeen(page: PageDriver): Promise<string | undefined> {
   const seen = await page
     .evaluate<string | null>(
       `() => {
