@@ -43,8 +43,17 @@ if (kept.length === 0) {
   console.error(`${scraper} has kept no runs — run it first`);
   process.exit(1);
 }
-const run = await ask('/api/results/get', { name: scraper, at: kept[0].at });
-const listings = run.rows.map((row) => row.url ?? `https://www.nhatot.com/${row.id}.htm`).filter(Boolean).slice(0, limit);
+// Every kept run, not just the newest. A scraper that remembers hands over only what is new each
+// time, so the newest run is an hour's worth and the board itself is spread across all of them.
+const seen = new Set();
+for (const run of kept) {
+  const rows = (await ask('/api/results/get', { name: scraper, at: run.at })).rows;
+  for (const row of rows) {
+    const where = row.url ?? (row.id ? `https://www.nhatot.com/${row.id}.htm` : null);
+    if (where) seen.add(where);
+  }
+}
+const listings = [...seen].slice(0, limit);
 
 console.log(`${scraper}: ${listings.length} listings, asking one at a time`);
 
