@@ -815,7 +815,15 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     const clickText = String(body['clickText'] ?? '').trim();
     if (!clickText) throw new InputError('say what the control says — it is found by its words, not by a selector');
 
-    return pool.use(poolKey(user.id, undefined), (session) => revealPhone(session.page, url, { userId: user.id, clickText }));
+    // A board that has stopped answering is usually not refusing us, it is refusing this address: a
+    // few dozen listings in a few minutes from one machine reads as exactly what it is. Which way out
+    // we go is part of the question, and each way out keeps its own profile and its own check.
+    const proxyId = body['proxy'] ? String(body['proxy']) : undefined;
+    if (proxyId && !(await findProxy(proxiesFileFor(user.id), proxyId))) throw new InputError('no such proxy');
+
+    return pool.use(poolKey(user.id, proxyId), (session) =>
+      revealPhone(session.page, url, { userId: user.id, clickText }),
+    );
   },
 
   /**

@@ -6,16 +6,20 @@
  * number found is written down, so a restart skips everything already in hand, and a run that starts
  * hitting a check stops rather than spending the night pressing at a wall.
  *
- * Usage: node scripts/collect-phones.mjs <scraper> "<what the control says>" [--base URL] [--limit N]
+ * Usage: node scripts/collect-phones.mjs <scraper> "<what the control says>" [--base URL] [--limit N] [--proxy ID] [--pace MS]
  * The key comes from RATATOSK_KEY.
  */
 const [scraper, clickText] = process.argv.slice(2);
 const base = argOf('--base') ?? 'http://127.0.0.1:5544';
 const limit = Number(argOf('--limit') ?? Infinity);
+const proxy = argOf('--proxy');
+// Back to back is what gets an address noticed. A second between listings costs an hour over a
+// board this size and is the difference between a pass that finishes and one that gets shut out.
+const pace = Number(argOf('--pace') ?? 1000);
 const key = process.env.RATATOSK_KEY;
 
 if (!scraper || !clickText || !key) {
-  console.error('usage: RATATOSK_KEY=… node scripts/collect-phones.mjs <scraper> "<control text>" [--base URL] [--limit N]');
+  console.error('usage: RATATOSK_KEY=… node scripts/collect-phones.mjs <scraper> "<control text>" [--base URL] [--limit N] [--proxy ID] [--pace MS]');
   process.exit(2);
 }
 
@@ -51,7 +55,7 @@ let doorsInARow = 0;
 for (const [index, url] of listings.entries()) {
   let answer;
   try {
-    answer = await ask('/api/contact', { url, clickText });
+    answer = await ask('/api/contact', { url, clickText, ...(proxy ? { proxy } : {}) });
   } catch (error) {
     answer = { reason: String(error).slice(0, 80) };
   }
@@ -68,6 +72,7 @@ for (const [index, url] of listings.entries()) {
     continue;
   }
   doorsInARow = 0;
+  if (pace) await new Promise((done) => setTimeout(done, pace));
 
   if (answer.phone) {
     // A listing already in hand comes back instantly; that is how a restart skips the first two days.
