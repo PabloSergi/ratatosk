@@ -22,7 +22,9 @@ import { join } from 'node:path';
 
 const [scraper] = process.argv.slice(2);
 const which = argOf('--set') ?? 'webp';
-const root = argOf('--dir') ?? 'images';
+// One tree per board. They share nothing: a sweep that runs for one board must never be able to see,
+// let alone delete, another board's pictures — which it did, twice, before this line existed.
+const root = join(argOf('--dir') ?? 'images', scraper);
 const parallel = Number(argOf('--parallel') ?? 24);
 const base = argOf('--base') ?? 'http://127.0.0.1:5544';
 const key = process.env.RATATOSK_KEY;
