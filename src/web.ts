@@ -842,8 +842,13 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
 
     const asked = String(body['since'] ?? '').trim();
     const runs = await keptRuns(user.id, name);
-    const since = asked || runs[0]?.at;
-    if (!since) throw new InputError(`${name} has not completed a pass yet — there is nothing to compare against`);
+    // The run BEFORE the last one, not the last one. A run's time is when its rows were kept, and the
+    // memory is written earlier, while the run is still walking — so measuring against the latest run
+    // marks everything it ever met as gone. A row that missed a whole pass is the honest boundary.
+    const since = asked || runs[1]?.at;
+    if (!since) {
+      throw new InputError(`${name} has completed fewer than two passes — there is nothing to compare against yet`);
+    }
     if (Number.isNaN(Date.parse(since))) throw new InputError(`"${asked}" is not a time`);
 
     const gone = vanished(await readMemory(memoryFileFor(user.id, name)), since);

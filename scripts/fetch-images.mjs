@@ -17,7 +17,7 @@
  * Usage: RATATOSK_KEY=… node scripts/fetch-images.mjs <scraper> [--set webp|medium|full]
  *                                                     [--dir PATH] [--parallel N] [--base URL]
  */
-import { mkdir, rename, rm, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 const [scraper] = process.argv.slice(2);
@@ -131,21 +131,17 @@ async function worker() {
 await Promise.all(Array.from({ length: parallel }, worker));
 console.log(`\nfetched ${tally.got}, already had ${tally.had}, failed ${tally.failed}, ${(tally.bytes / 1e6).toFixed(0)} MB`);
 
-// What the board no longer shows, this disk no longer keeps.
-const gone = (await ask('/api/vanished', { name: scraper }).catch(() => ({ ids: [] }))).ids ?? [];
+/**
+ * What the board no longer shows, this disk no longer keeps.
+ *
+ * The board as it answered a minute ago outranks anything remembered about it: a listing we have just
+ * been handed is not gone, whatever a memory or a boundary says. Getting that the wrong way round once
+ * cost five thousand directories of pictures, all of them live.
+ */
 let swept = 0;
-for (const one of gone) {
-  const there = join(root, one.id);
-  if (await stat(there).catch(() => undefined)) {
-    await rm(there, { recursive: true, force: true });
-    swept++;
-  }
-}
-
-// …and anything on disk the board has simply stopped listing, which the memory may not have met.
 const onDisk = await readdir(root).catch(() => []);
 for (const id of onDisk) {
-  if (wanted.has(id) || gone.some((one) => one.id === id)) continue;
+  if (wanted.has(id)) continue;
   await rm(join(root, id), { recursive: true, force: true });
   swept++;
 }
