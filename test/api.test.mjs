@@ -158,3 +158,17 @@ test('the cap is real: a board is not deepened row by row for ever', async () =>
   await deepen(rows, { url: 'https://example.test/{id}', fields: { deposit: 'ad.deposit' }, maxRows: 10 }, ask);
   assert.equal(calls, 10);
 });
+
+test('a second look never overwrites what the list gave with its own silence', async () => {
+  const { deepen } = await import('../src/api.ts');
+
+  // The deeper answer carries a listing's bathrooms but says nothing about when it was first posted —
+  // which is normal for an advert nobody has ever pushed back to the top.
+  const ask = async () => ({ ad: { toilets: 2 } });
+  const rows = [{ id: '11', posted_at: '1789000000000', toilets: null }];
+
+  await deepen(rows, { url: 'https://example.test/{id}', fields: { toilets: 'ad.toilets', posted_at: 'ad.orig_list_time' } }, ask);
+
+  assert.equal(rows[0].toilets, '2', 'what it did say lands');
+  assert.equal(rows[0].posted_at, '1789000000000', 'and what it did not say leaves the list alone');
+});

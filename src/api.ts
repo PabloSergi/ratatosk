@@ -80,7 +80,12 @@ export async function deepen(rows: Row[], detail: ApiDetail, ask: AskJson): Prom
 
     try {
       calls++;
-      Object.assign(row, readRow(await ask(where), detail.fields));
+      // Only what the deeper answer actually says. A field missing there is not a correction of what
+      // the list already gave — merging its emptiness over a good value loses data to a second look,
+      // which is the opposite of what a second look is for.
+      for (const [column, value] of Object.entries(readRow(await ask(where), detail.fields))) {
+        if (value !== null) row[column] = value;
+      }
     } catch {
       // A row that will not deepen is still an honest row: it keeps what the list gave.
     }
