@@ -38,10 +38,22 @@ function looksLikeMoney(said: string, whole: string, at: number): boolean {
   return false;
 }
 
+/**
+ * An address, rather than something somebody wrote.
+ *
+ * A link is full of digits — identifiers, hashes, the numbers a CDN names a file by — and a run of ten
+ * of them starting with a zero happens there all the time. Masking inside one does not hide a phone,
+ * it destroys the address, and an address is the key half the system is keyed on. Left alone entirely.
+ */
+function isAddress(text: string): boolean {
+  return /^\s*(?:https?:\/\/|\[\s*"https?:)/.test(text);
+}
+
 /** The text with every phone number taken out of it. */
 export function mask(said: string | null | undefined): string | null {
   const text = said === null || said === undefined ? '' : String(said);
   if (!text) return said === undefined ? null : said === null ? null : text;
+  if (isAddress(text)) return text;
 
   return text.replace(NUMBER, (found, at: number) => {
     const digits = found.replace(/\D/g, '');

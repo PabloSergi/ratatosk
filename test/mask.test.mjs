@@ -68,3 +68,28 @@ test('a whole row goes through, and only its texts', () => {
   assert.equal(clean.lat, '10.85');
   assert.equal(clean.project_vi, null);
 });
+
+test('an address is left whole, however many digits it carries', () => {
+  // Twenty thousand links were eaten by a pattern that could not tell a CDN hash from a mobile number.
+  const links = [
+    'https://cdn.chotot.com/RUuxox/preset:listing/plain/5ffd9d1d226690b2c2f73c3acdab3279-3001803141437368691.webp',
+    'https://ofmjobs.com/find-jobs/01a06380-1964-7e6d-9a2f-0e72d207b0a9',
+    '["https://cdn.chotot.com/a-3001679805.jpg","https://cdn.chotot.com/b-0123456789.jpg"]',
+    'https://t.me/hiringOFM/353494',
+  ];
+  for (const one of links) {
+    assert.equal(mask(one), one, `ссылка испорчена: ${one} → ${mask(one)}`);
+  }
+});
+
+test('a row of pictures survives masking intact', () => {
+  const clean = maskRow({
+    img_full: '["https://cdn.chotot.com/x-0123456789.jpg"]',
+    ссылка: 'https://ofmjobs.com/find-jobs/01a06380-1964-7e6d-9a2f-0e72d207b0a9',
+    body_vi: 'Liên hệ 0899680413',
+  });
+
+  assert.ok(clean.img_full.includes('0123456789'), 'хеш в ссылке цел');
+  assert.ok(clean['ссылка'].endsWith('0e72d207b0a9'), 'UUID цел');
+  assert.ok(clean.body_vi.includes(WITHHELD), 'а номер в тексте убран');
+});
