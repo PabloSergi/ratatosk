@@ -7,7 +7,7 @@ import { log } from './log.js';
 import { memoryFileFor, readMemory, writeMemory, type Seen } from './memory.js';
 import { findProxy, proxiesFileFor, toRunningBrowser } from './proxies.js';
 import { robotsDirFor } from './auth.js';
-import { loadRobot } from './robots.js';
+import { isBrowserRobot, loadRobot } from './robots.js';
 import { keepResult } from './results.js';
 import type { RunResult } from './run.js';
 import { runRobot } from './run-robot.js';
@@ -86,7 +86,7 @@ export async function runForAccount(userId: string, name: string, options: RunOp
     ? { seen: await readMemory(memoryFile), save: (next: Record<string, Seen>) => writeMemory(memoryFile, next) }
     : undefined;
 
-  const run = await options.pool.use(poolKey(userId, isTelegramRobot(robot) ? undefined : robot.proxy), (session) =>
+  const run = await options.pool.use(poolKey(userId, isBrowserRobot(robot) ? robot.proxy : undefined), (session) =>
     runRobot(robot, {
       page: async () => session.page,
       rules: options.rules,
@@ -111,7 +111,7 @@ export async function runForAccount(userId: string, name: string, options: RunOp
     ...(run.reason ? { why: run.reason.slice(0, 200) } : {}),
     ...(run.challenge ? { door: true } : {}),
     ...(run.quiet ? { quiet: true } : {}),
-    ...(isTelegramRobot(robot) ? {} : { proxy: robot.proxy ?? 'direct' }),
+    ...(isBrowserRobot(robot) ? { proxy: robot.proxy ?? 'direct' } : {}),
   });
 
   // Kept so that "I ran it yesterday" is answerable today. Only the rows: the verdict and the reason
@@ -138,7 +138,7 @@ export async function runForAccount(userId: string, name: string, options: RunOp
     pages: run.pagesVisited,
     ms: Date.now() - started,
     ...(run.reason ? { why: run.reason.slice(0, 200) } : {}),
-    ...(isTelegramRobot(robot) ? {} : { proxy: robot.proxy ?? 'direct' }),
+    ...(isBrowserRobot(robot) ? { proxy: robot.proxy ?? 'direct' } : {}),
   });
   return run;
 }

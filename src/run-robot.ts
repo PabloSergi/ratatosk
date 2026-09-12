@@ -5,6 +5,7 @@ import { runScenario, type RunResult } from './run.js';
 import { identityOfMessage, meet, type Remember, type Row, type Seen } from './memory.js';
 import { judgeLeftovers, judgeSift, sift, type Sift } from './sift.js';
 import { isTelegramRobot, runTelegramRobot } from './telegram.js';
+import { asker, isApiRobot, runApiRobot, type AskJson } from './api.js';
 
 /**
  * One way to run a robot, whatever it reads. Callers — the web view, the MCP server, cron — ask for
@@ -22,6 +23,8 @@ export async function runRobot(
     telegramSession?: string;
     /** How to put a question to a model, when a robot's rule leaves the edge cases to one. */
     ask?: (prompt: string) => Promise<string>;
+    /** How to put a question to a JSON feed. Injected so a test never reaches the network. */
+    askJson?: AskJson;
     /** What this robot has seen before, and somewhere to put what it sees now. */
     memory?: { seen: Record<string, Seen>; save: (memory: Record<string, Seen>) => Promise<void> };
   },
@@ -63,6 +66,27 @@ export async function runRobot(
       pagesVisited: robot.channels.length,
       ...(sifted.note || seen.note ? { reason: [sifted.note, seen.note].filter(Boolean).join('; ') } : {}),
     };
+  }
+
+  if (isApiRobot(robot)) {
+    const feed = await runApiRobot(robot, options.askJson ?? asker());
+    if (feed.rows.length === 0) {
+      return {
+        status: 'empty',
+        rows: [],
+        pagesVisited: feed.calls,
+        reason: feed.reason ?? 'the feed answered, and had nothing in it',
+      };
+    }
+
+    const sifted = await applySift(feed.rows, (robot as { sift?: Sift }).sift, options.ask);
+    const seen = await remember(sifted.rows, robot.remember, options.memory);
+    const why = [feed.reason, sifted.note, seen.note].filter(Boolean).join('; ');
+    if (seen.rows.length === 0 && seen.note) {
+      // Everything the feed held had already been handed over. A quiet hour, not a dead source.
+      return { status: 'empty', quiet: true, rows: [], pagesVisited: feed.calls, reason: why };
+    }
+    return { status: 'ok', rows: seen.rows, pagesVisited: feed.calls, ...(why ? { reason: why } : {}) };
   }
 
   const scenario =

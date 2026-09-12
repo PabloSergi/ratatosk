@@ -29,6 +29,7 @@ import {
   loadRobot,
   renameRobot,
   restoreRobot,
+  isBrowserRobot,
   saveRobot,
 } from './robots.js';
 import { loadRules, type SiteRule } from './rules.js';
@@ -190,7 +191,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
 
     // The page half first: a rule measured against rows a broken scenario collected proves nothing.
     let selectors;
-    if (!isTelegramRobot(robot)) {
+    if (isBrowserRobot(robot)) {
       selectors = await pool.use(poolKey(user.id, robot.proxy), async (session) => {
         const repair = await repairScenario(session.page, robot, { rules });
         if (repair.status === 'repaired' && repair.scenario) {
@@ -623,7 +624,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     );
     if (stillRead) return { deleted: name, removed, forgotten: 0, kept: `${host} is still read by another robot` };
 
-    const key = poolKey(user.id, robot.proxy);
+    const key = poolKey(user.id, isBrowserRobot(robot) ? robot.proxy : undefined);
     await pool.close(key);
     const session = await openBrowser({
       profileDir: join(process.env['RATATOSK_PROFILES'] ?? 'profiles', key.replace('|', '--')),
@@ -649,7 +650,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     const started = Date.now();
     const telegramSession = isTelegramRobot(robot) ? await sessionForRobot(user.id, robot.account) : undefined;
 
-    const result = await pool.use(poolKey(user.id, isTelegramRobot(robot) ? undefined : robot.proxy), (session) =>
+    const result = await pool.use(poolKey(user.id, isBrowserRobot(robot) ? robot.proxy : undefined), (session) =>
       runRobot(robot, {
         page: async () => session.page,
         rules,
@@ -1127,7 +1128,7 @@ async function freshRows(
 
   const bare = { ...robot } as typeof robot & { sift?: unknown };
   delete bare.sift;
-  const run = await pool.use(poolKey(userId, robot.proxy), (session) =>
+  const run = await pool.use(poolKey(userId, isBrowserRobot(robot) ? robot.proxy : undefined), (session) =>
     runRobot(bare, { page: async () => session.page, rules, maxPages: 2 }),
   );
   if (run.status === 'broken') throw new InputError(`the robot itself is broken: ${run.reason ?? ''}`);

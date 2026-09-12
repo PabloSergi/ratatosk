@@ -4,7 +4,7 @@ import { openBrowser } from './drivers/patchright.js';
 import type { PageDriver } from './driver.js';
 import { memoryFileFor, readMemory, writeMemory } from './memory.js';
 import { repairScenario } from './repair.js';
-import { parseRobot, type Robot } from './robots.js';
+import { isBrowserRobot, parseRobot, type Robot } from './robots.js';
 import { runRobot } from './run-robot.js';
 import { loadRules, type SiteRule } from './rules.js';
 import { resolveScope } from './scope.js';
@@ -46,6 +46,12 @@ async function main(): Promise<number> {
         // Nothing here rots the way a selector does: a channel is read through a client, not scraped
         // off a page. What goes wrong is the rule, and that is repaired where the rule lives.
         console.error('a Telegram scraper has no selectors to repair — rebuild its rule in the web view');
+        return 2;
+      }
+      if (!isBrowserRobot(robot)) {
+        // A feed has no selectors either: what rots there is the shape of the answer, and that is a
+        // different repair — one nobody can make by looking at a page.
+        console.error('a feed scraper has no selectors to repair — check its field paths by hand');
         return 2;
       }
       const repair = await repairScenario(await page(), robot, { rules });

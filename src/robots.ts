@@ -4,13 +4,16 @@ import type { Scenario } from './scenario.js';
 import { parseScenario } from './scenario.js';
 import { InputError } from './errors.js';
 import { isTelegramRobot, parseTelegramRobot, type TelegramRobot } from './telegram.js';
+import { isApiRobot, parseApiRobot, type ApiRobot } from './api.js';
 
-/** A robot is either a page walk or a Telegram read. Both are one JSON file on disk. */
-export type Robot = Scenario | TelegramRobot;
+/** A robot is a page walk, a Telegram read, or a JSON feed. All three are one JSON file on disk. */
+export type Robot = Scenario | TelegramRobot | ApiRobot;
 
 /** One place decides which kind of robot a file holds, so nowhere else has to guess. */
 export function parseRobot(data: unknown): Robot {
-  return isTelegramRobot(data) ? parseTelegramRobot(data) : parseScenario(data);
+  if (isTelegramRobot(data)) return parseTelegramRobot(data);
+  if (isApiRobot(data)) return parseApiRobot(data);
+  return parseScenario(data);
 }
 
 /**
@@ -160,10 +163,22 @@ export async function loadRobot(name: string, dir = ROBOTS_DIR): Promise<Robot> 
   }
 }
 
+/**
+ * A page walk, as opposed to a channel or a feed.
+ *
+ * Three kinds now, and most of the code does not care which — it asks for rows. The places that do
+ * care all care about the same thing: whether a browser is involved, because that is what a proxy
+ * goes through and what a selector can rot against. Asking that question by name beats asking it as
+ * "not Telegram", which quietly became wrong the moment a third kind existed.
+ */
+export function isBrowserRobot(robot: Robot): robot is Scenario {
+  return !isTelegramRobot(robot) && !isApiRobot(robot);
+}
+
 export interface RobotSummary {
   name: string;
   /** What it reads: a kind, not a guess made by looking at the pagination text. */
-  kind: 'web' | 'telegram';
+  kind: 'web' | 'telegram' | 'api';
   url: string;
   fields: string[];
   /** Columns that come from inside a row, not from the list. They cost a page load each. */
@@ -192,7 +207,15 @@ export async function listRobots(dir = ROBOTS_DIR): Promise<RobotSummary[]> {
     try {
       const robot = parseRobot(JSON.parse(await readFile(join(dir, file), 'utf8')));
       robots.push(
-        isTelegramRobot(robot)
+        isApiRobot(robot)
+          ? {
+              name: robot.name,
+              kind: 'api' as const,
+              url: robot.url,
+              fields: Object.keys(robot.fields),
+              pagination: robot.window ? `offset, window on ${robot.window.param}` : 'offset',
+            }
+          : isTelegramRobot(robot)
           ? {
               name: robot.name,
               kind: 'telegram' as const,

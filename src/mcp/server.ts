@@ -8,7 +8,7 @@ import { buildScenario, paginateProbe, tryFields } from '../build.js';
 import type { BrowserSession } from '../drivers/patchright.js';
 import { openBrowser } from '../drivers/patchright.js';
 import { look } from '../look.js';
-import { archivePrevious, listRobots, loadRobot, saveRobot } from '../robots.js';
+import { archivePrevious, listRobots, loadRobot, saveRobot, isBrowserRobot } from '../robots.js';
 import { applyRules, type SiteRule } from '../rules.js';
 import { resolveScope, type Scope } from '../scope.js';
 import { activeConnection, settingsFileFor } from '../settings.js';
@@ -268,8 +268,8 @@ server.registerTool(
   },
   async ({ name, apply }) => {
     const robot = await loadRobot(name, scope.robotsDir);
-    if (isTelegramRobot(robot)) {
-      return fail(`${name} reads Telegram, and there are no selectors to repair — edit its channels instead.`);
+    if (!isBrowserRobot(robot)) {
+      return fail(`${name} does not read a page, and there are no selectors to repair — edit its source instead.`);
     }
     if (!session) session = await openBrowser();
     const repair = await repairScenario(session.page, robot, { rules });
