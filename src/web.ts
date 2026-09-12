@@ -47,7 +47,7 @@ import {
 import { runRobot } from './run-robot.js';
 import { buildSift, type Ask, type SiftBuild } from './sift-agent.js';
 import { repairRule } from './rule-repair.js';
-import { memoryFileFor, readMemory, writeMemory, type Seen } from './memory.js';
+import { memoryFileFor, readMemory, vanished, writeMemory, type Seen } from './memory.js';
 import { judgeSift, sift, type Sift } from './sift.js';
 import { closeBridges } from './socks-bridge.js';
 import { findTakeover, startTakeover, stopAllTakeovers, stopTakeover, takeoversOf } from './takeover.js';
@@ -815,7 +815,31 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     const clickText = String(body['clickText'] ?? '').trim();
     if (!clickText) throw new InputError('say what the control says — it is found by its words, not by a selector');
 
-    return pool.use(poolKey(user.id, undefined), (session) => revealPhone(session.page, url, { clickText }));
+    return pool.use(poolKey(user.id, undefined), (session) => revealPhone(session.page, url, { userId: user.id, clickText }));
+  },
+
+  /**
+   * What this scraper has stopped seeing.
+   *
+   * The cheap half of keeping a board current. What is new costs a run; what is gone costs nothing at
+   * all — it is already in the memory, as rows whose last sighting is older than the last pass. No
+   * page is opened and no control is pressed to answer this.
+   *
+   * `since` is the moment the last complete pass began. Without one, the last run's own time is used,
+   * which is what somebody asking "what went since yesterday" almost always means.
+   */
+  '/api/vanished': async (body, user) => {
+    const name = String(body['name'] ?? '');
+    await loadRobot(name, robotsDirFor(user.id));
+
+    const asked = String(body['since'] ?? '').trim();
+    const runs = await keptRuns(user.id, name);
+    const since = asked || runs[0]?.at;
+    if (!since) throw new InputError(`${name} has not completed a pass yet — there is nothing to compare against`);
+    if (Number.isNaN(Date.parse(since))) throw new InputError(`"${asked}" is not a time`);
+
+    const gone = vanished(await readMemory(memoryFileFor(user.id, name)), since);
+    return { since, gone: gone.length, ids: gone.slice(0, Number(body['limit'] ?? 5000)) };
   },
 
   /** What has been deleted and can still be had back. */

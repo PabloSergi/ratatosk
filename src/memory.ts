@@ -149,6 +149,31 @@ export function identityOfMessage(row: Row, by?: string): string | undefined {
   return typeof text === 'string' && text !== '' ? key({ text }, undefined, true) : identity(row);
 }
 
+/**
+ * What the scraper has stopped seeing.
+ *
+ * A board answers "here is everything that is up right now", and the interesting half of that is what
+ * is NOT in it any more: a flat that has been let, an advert that was taken down. Nobody has to open
+ * anything to know it — the memory already holds when each row was last met, so a row whose last
+ * sighting is older than the last completed pass simply was not in that pass.
+ *
+ * Only rows identified by a named column can be reported this way. A row identified by a fingerprint
+ * of its own text has no id to hand back, and inventing one would be worse than saying nothing.
+ */
+export function vanished(
+  memory: Record<string, Seen>,
+  since: string,
+): Array<{ id: string; lastSeen: string; times: number }> {
+  const boundary = Date.parse(since);
+  const gone = [];
+  for (const [key, seen] of Object.entries(memory)) {
+    if (!key.startsWith('k:')) continue;
+    if (Date.parse(seen.lastSeen) >= boundary) continue;
+    gone.push({ id: key.slice(2), lastSeen: seen.lastSeen, times: seen.times });
+  }
+  return gone.sort((one, other) => one.lastSeen.localeCompare(other.lastSeen));
+}
+
 export async function readMemory(file: string): Promise<Record<string, Seen>> {
   try {
     return JSON.parse(await readFile(file, 'utf8')) as Record<string, Seen>;

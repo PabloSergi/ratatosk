@@ -68,6 +68,15 @@ CREATE TABLE IF NOT EXISTS schedules (
 );
 
 CREATE INDEX IF NOT EXISTS schedules_due ON schedules (next_at) WHERE paused = false;
+
+CREATE TABLE IF NOT EXISTS contacts (
+  user_id  TEXT        NOT NULL,
+  url      TEXT        NOT NULL,
+  phone    TEXT,
+  at       TIMESTAMPTZ NOT NULL,
+  reason   TEXT,
+  PRIMARY KEY (user_id, url)
+);
 `;
 
 export async function db(): Promise<Pool> {

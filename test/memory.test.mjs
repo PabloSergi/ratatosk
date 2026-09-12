@@ -190,3 +190,30 @@ test('a channel watched for events can ask for per-message identity back', () =>
   assert.equal(again.fresh.length, 1, 'a second message is a second event, whatever it repeats');
   assert.equal(again.repeated.length, 0);
 });
+
+/**
+ * The other half of a board: not what is new, but what is no longer there. A let flat never announces
+ * itself — it simply stops appearing, and the memory is the only thing that noticed.
+ */
+test('what stopped appearing is answerable without opening anything', async () => {
+  const { meet, vanished } = await import('../src/memory.ts');
+  const rule = { by: 'id' };
+
+  const monday = meet([{ id: '1' }, { id: '2' }, { id: '3' }], {}, rule, new Date('2026-09-10T08:00:00Z'));
+  // Tuesday the second flat is gone from the board.
+  const tuesday = meet([{ id: '1' }, { id: '3' }], monday.memory, rule, new Date('2026-09-11T08:00:00Z'));
+
+  const gone = vanished(tuesday.memory, '2026-09-11T07:00:00Z');
+  assert.deepEqual(gone.map((one) => one.id), ['2']);
+  assert.equal(gone[0].times, 1, 'and how many times it had been seen before it went');
+});
+
+test('a row identified by its own words has no id to report as gone', async () => {
+  const { meet, vanished } = await import('../src/memory.ts');
+
+  const before = meet([posting('Looking for a chat operator for evening shifts, 60% of takings')], {}, {},
+    new Date('2026-09-10T08:00:00Z'));
+
+  // Nothing is claimed rather than a fingerprint handed back as if it were an address.
+  assert.deepEqual(vanished(before.memory, '2026-09-11T08:00:00Z'), []);
+});

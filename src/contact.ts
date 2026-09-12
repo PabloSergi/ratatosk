@@ -9,6 +9,9 @@
  * So this is one listing at a time, on demand, and the answer is kept for a while: the person who
  * opened a card and is dialling will open it again, and the board should not be asked twice for that.
  */
+import { appendFile, mkdir, readFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { db, usingDatabase } from './db.js';
 import type { PageDriver } from './driver.js';
 import { challengeSeen } from './run.js';
 
@@ -24,10 +27,79 @@ export interface Contact {
   door?: string;
 }
 
-/** Long enough that a person keeps their answer, short enough that a re-let is not called about. */
-const KEEP_MS = 6 * 60 * 60 * 1000;
+/**
+ * A number, once found, is kept for good.
+ *
+ * The listing's number does not change — what changes is whether the listing is still up, and that is
+ * answered by the feed, for free, without opening anything. So there is no point in ever pressing for
+ * the same listing twice, and a full pass over a board is resumable for nothing: whatever is already
+ * in here is skipped.
+ *
+ * A failure is the opposite: it is kept in this process only, briefly, so a run does not hammer the
+ * same broken listing — and it is gone on restart, because the reason may have been the weather.
+ */
+const failures = new Map<string, Contact>();
+const FORGET_FAILURE_MS = 30 * 60 * 1000;
 
-const known = new Map<string, Contact>();
+/** The file store, for a laptop and the tests: one line per listing, appended, read once. */
+const fileFor = (userId: string): string =>
+  join(process.env['RATATOSK_CONTACTS'] ?? 'contacts', `${userId.replace(/[^a-zA-Z0-9._-]/g, '-')}.jsonl`);
+
+const loaded = new Map<string, Map<string, Contact>>();
+
+async function fileIndex(userId: string): Promise<Map<string, Contact>> {
+  const had = loaded.get(userId);
+  if (had) return had;
+
+  const index = new Map<string, Contact>();
+  try {
+    for (const line of (await readFile(fileFor(userId), 'utf8')).split('\n')) {
+      if (!line.trim()) continue;
+      const one = JSON.parse(line) as Contact & { url: string };
+      index.set(one.url, { phone: one.phone, at: one.at });
+    }
+  } catch {
+    // No file yet is not a problem — it is a board nobody has asked about.
+  }
+  loaded.set(userId, index);
+  return index;
+}
+
+/** What is already known about this listing, if anything. */
+export async function knownContact(userId: string, url: string): Promise<Contact | undefined> {
+  if (usingDatabase()) {
+    const pool = await db();
+    const { rows } = await pool.query<{ phone: string | null; at: Date }>(
+      'SELECT phone, at FROM contacts WHERE user_id = $1 AND url = $2 AND phone IS NOT NULL',
+      [userId, url],
+    );
+    const one = rows[0];
+    return one ? { phone: one.phone, at: one.at.toISOString() } : undefined;
+  }
+  return (await fileIndex(userId)).get(url);
+}
+
+async function keepContact(userId: string, url: string, contact: Contact): Promise<void> {
+  if (usingDatabase()) {
+    const pool = await db();
+    await pool.query(
+      `INSERT INTO contacts (user_id, url, phone, at, reason) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (user_id, url) DO UPDATE SET phone = EXCLUDED.phone, at = EXCLUDED.at, reason = EXCLUDED.reason`,
+      [userId, url, contact.phone, contact.at, contact.reason ?? null],
+    );
+    return;
+  }
+  const file = fileFor(userId);
+  await mkdir(dirname(file), { recursive: true });
+  await appendFile(file, `${JSON.stringify({ url, ...contact })}\n`, 'utf8');
+  (await fileIndex(userId)).set(url, contact);
+}
+
+/** For the tests: start again with nothing remembered in this process. */
+export function forgetContacts(): void {
+  failures.clear();
+  loaded.clear();
+}
 
 /**
  * The digits in what the control says once it has said them.
@@ -40,21 +112,6 @@ export function phoneIn(said: string | null | undefined): string | null {
   return match ? match[1]! : null;
 }
 
-/** Whether this listing's number is already in hand, and still fresh. */
-export function remembered(url: string, now = Date.now()): Contact | undefined {
-  const had = known.get(url);
-  if (!had) return undefined;
-  if (now - Date.parse(had.at) > KEEP_MS) {
-    known.delete(url);
-    return undefined;
-  }
-  return had;
-}
-
-export function forgetContacts(): void {
-  known.clear();
-}
-
 /**
  * Open the listing, press the control that shows the number, and read it off that same control.
  *
@@ -65,12 +122,17 @@ export function forgetContacts(): void {
 export async function revealPhone(
   page: PageDriver,
   url: string,
-  options: { clickText: string; settleMs?: number; revealMs?: number; now?: number } ,
+  options: { userId: string; clickText: string; settleMs?: number; revealMs?: number; now?: number },
 ): Promise<Contact> {
-  const already = remembered(url, options.now ?? Date.now());
+  const now = options.now ?? Date.now();
+
+  const already = await knownContact(options.userId, url);
   if (already) return already;
 
-  const at = new Date(options.now ?? Date.now()).toISOString();
+  const failed = failures.get(url);
+  if (failed && now - Date.parse(failed.at) < FORGET_FAILURE_MS) return failed;
+
+  const at = new Date(now).toISOString();
   await page.goto(url);
   await page.waitMs(options.settleMs ?? 1200);
 
@@ -83,17 +145,21 @@ export async function revealPhone(
       ? { phone: null, at, door, reason: `the board asked us to prove we are human: ${door}` }
       : { phone: null, at, reason: `nothing on the page says "${options.clickText}"` };
     // A door is not an answer, and must not be remembered as one.
-    if (!door) known.set(url, missing);
+    if (!door) failures.set(url, missing);
     return missing;
   }
 
   await page.waitMs(options.revealMs ?? 2000);
   const said = await page.evaluate<string>(READ_SOURCE, options.clickText);
   const phone = phoneIn(said);
-  const found: Contact = phone
-    ? { phone, at }
-    : { phone: null, at, reason: 'the control was pressed and still shows no number' };
-  known.set(url, found);
+  if (!phone) {
+    const empty: Contact = { phone: null, at, reason: 'the control was pressed and still shows no number' };
+    failures.set(url, empty);
+    return empty;
+  }
+
+  const found: Contact = { phone, at };
+  await keepContact(options.userId, url, found);
   return found;
 }
 

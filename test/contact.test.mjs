@@ -1,14 +1,24 @@
 import assert from 'node:assert/strict';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test, beforeEach } from 'vitest';
 
-import { forgetContacts, phoneIn, remembered, revealPhone } from '../src/contact.ts';
+import { forgetContacts, knownContact, phoneIn, revealPhone } from '../src/contact.ts';
 
 /**
  * A board shows the number only to someone who asks for it. The trap is not the click — it is what
  * happens when the click does nothing: a page is full of numbers, and a loose reading turns a failed
  * reveal into a confident wrong number, which is worse than an empty field.
  */
-beforeEach(() => forgetContacts());
+let store;
+beforeEach(async () => {
+  // A file store in a fresh directory, and no database: these are about the remembering, not about pg.
+  delete process.env.RATATOSK_DB;
+  store = await mkdtemp(join(tmpdir(), 'ratatosk-contacts-'));
+  process.env.RATATOSK_CONTACTS = store;
+  forgetContacts();
+});
 
 const LISTING = 'https://example.test/134586074.htm';
 
@@ -36,7 +46,7 @@ function listing({ pressable = true, revealsTo = 'Hiện số 0899680413', wall 
 test('a number is read only after the control has been pressed', async () => {
   const { page, state } = listing();
 
-  const got = await revealPhone(page, LISTING, { clickText: 'Hiện số' });
+  const got = await revealPhone(page, LISTING, { userId: 'u1', clickText: 'Hiện số' });
 
   assert.equal(got.phone, '0899680413');
   assert.equal(state.pressed, true);
@@ -46,7 +56,7 @@ test('a number is read only after the control has been pressed', async () => {
 test('a control that is not there is said out loud, not returned as a blank', async () => {
   const { page } = listing({ pressable: false });
 
-  const got = await revealPhone(page, LISTING, { clickText: 'Hiện số' });
+  const got = await revealPhone(page, LISTING, { userId: 'u1', clickText: 'Hiện số' });
 
   assert.equal(got.phone, null);
   assert.match(got.reason, /nothing on the page says/);
@@ -56,7 +66,7 @@ test('a press that reveals nothing does not invent a number out of the page', as
   // The masked form is still on the control. Reading it loosely would hand back 089968 as a phone.
   const { page } = listing({ revealsTo: 'Hiện số 089968 ***' });
 
-  const got = await revealPhone(page, LISTING, { clickText: 'Hiện số' });
+  const got = await revealPhone(page, LISTING, { userId: 'u1', clickText: 'Hiện số' });
 
   assert.equal(got.phone, null, 'a mask is not a number');
   assert.match(got.reason, /still shows no number/);
@@ -64,20 +74,31 @@ test('a press that reveals nothing does not invent a number out of the page', as
 
 test('the board is not asked twice for the same listing', async () => {
   const first = listing();
-  await revealPhone(first.page, LISTING, { clickText: 'Hiện số' });
+  await revealPhone(first.page, LISTING, { userId: 'u1', clickText: 'Hiện số' });
   const second = listing();
-  const again = await revealPhone(second.page, LISTING, { clickText: 'Hiện số' });
+  const again = await revealPhone(second.page, LISTING, { userId: 'u1', clickText: 'Hiện số' });
 
   assert.equal(again.phone, '0899680413');
   assert.equal(second.state.opened, 0, 'the answer was already in hand');
 });
 
-test('an answer kept since yesterday is not an answer', async () => {
-  const day = 24 * 60 * 60 * 1000;
+test('a number found once survives a restart, so a long pass is resumable', async () => {
   const { page } = listing();
-  await revealPhone(page, LISTING, { clickText: 'Hiện số', now: 1_000_000 });
+  await revealPhone(page, LISTING, { userId: 'u1', clickText: 'Hiện số' });
 
-  assert.equal(remembered(LISTING, 1_000_000 + day), undefined, 'a re-let is not called about');
+  // Everything this process held is gone; the answer is not, because it was written down.
+  forgetContacts();
+  assert.equal((await knownContact('u1', LISTING))?.phone, '0899680413');
+
+  const again = listing();
+  await revealPhone(again.page, LISTING, { userId: 'u1', clickText: 'Hiện số' });
+  assert.equal(again.state.opened, 0, 'a listing whose number is known is never opened again');
+});
+
+test('one account does not read another account\'s answers', async () => {
+  const { page } = listing();
+  await revealPhone(page, LISTING, { userId: 'u1', clickText: 'Hiện số' });
+  assert.equal(await knownContact('u2', LISTING), undefined);
 });
 
 test('only a number shaped like a number is one', () => {
@@ -94,7 +115,7 @@ test('a check standing in the way is a door, not a missing button', async () => 
   // selector that was never wrong, and hides the one thing that would actually help: walking through.
   const { page } = listing({ pressable: false, wall: 'Just a moment...' });
 
-  const got = await revealPhone(page, LISTING, { clickText: 'Hiện số' });
+  const got = await revealPhone(page, LISTING, { userId: 'u1', clickText: 'Hiện số' });
 
   assert.equal(got.phone, null);
   assert.equal(got.door, 'Just a moment...');
@@ -103,11 +124,11 @@ test('a check standing in the way is a door, not a missing button', async () => 
 
 test('a door is not remembered as an answer', async () => {
   const blocked = listing({ pressable: false, wall: 'Just a moment...' });
-  await revealPhone(blocked.page, LISTING, { clickText: 'Hiện số' });
+  await revealPhone(blocked.page, LISTING, { userId: 'u1', clickText: 'Hiện số' });
 
   // Once somebody has walked through it, asking again must actually ask again.
   const open_ = listing();
-  const got = await revealPhone(open_.page, LISTING, { clickText: 'Hiện số' });
+  const got = await revealPhone(open_.page, LISTING, { userId: 'u1', clickText: 'Hiện số' });
   assert.equal(got.phone, '0899680413');
   assert.equal(open_.state.opened, 1, 'the board was asked again, not answered from a cached refusal');
 });
