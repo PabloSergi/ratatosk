@@ -32,6 +32,7 @@ import {
   isBrowserRobot,
   saveRobot,
 } from './robots.js';
+import { revealPhone } from './contact.js';
 import { loadRules, type SiteRule } from './rules.js';
 import {
   addProxy,
@@ -799,6 +800,22 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
         run.rows.map((fields) => ({ scraper: run.scraper, kind: kinds.get(run.scraper) ?? 'web', at: run.at, fields })),
       ),
     };
+  },
+
+  /**
+   * The number to ring about one listing.
+   *
+   * Boards mask it until somebody presses for it, and that is a cost on collecting them in bulk worth
+   * respecting rather than defeating: this opens one listing, presses once, and keeps the answer for a
+   * few hours. A card somebody is about to call from asks here; a nightly harvest does not.
+   */
+  '/api/contact': async (body, user) => {
+    const url = String(body['url'] ?? '').trim();
+    if (!/^https?:\/\//.test(url)) throw new InputError('give the address of the listing');
+    const clickText = String(body['clickText'] ?? '').trim();
+    if (!clickText) throw new InputError('say what the control says — it is found by its words, not by a selector');
+
+    return pool.use(poolKey(user.id, undefined), (session) => revealPhone(session.page, url, { clickText }));
   },
 
   /** What has been deleted and can still be had back. */
