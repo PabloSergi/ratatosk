@@ -322,11 +322,25 @@ async function goToNextPage(
   }
 
   if (pagination.type === 'number') {
-    const next = new URL(await page.currentUrl());
     const start = pagination.start ?? 2;
     const step = pagination.step ?? 1;
-    const current = Number(next.searchParams.get(pagination.param) ?? start - step);
-    next.searchParams.set(pagination.param, String(current + step));
+    const here = new URL(await page.currentUrl());
+
+    let next: URL;
+    if (pagination.path) {
+      // The number is part of the address. Page one is the address as written, so the number to ask
+      // for is read back out of where we are — and where we are, on page one, has no number in it.
+      const shape = pagination.path.replace('{n}', '(\\d+)');
+      const found = new RegExp(`${shape}/?$`).exec(here.pathname);
+      const current = found ? Number(found[1]) : start - step;
+      const base = found ? here.pathname.slice(0, found.index) : here.pathname.replace(/\/$/, '');
+      next = new URL(here.href);
+      next.pathname = base + pagination.path.replace('{n}', String(current + step));
+    } else {
+      next = new URL(here.href);
+      const current = Number(next.searchParams.get(pagination.param!) ?? start - step);
+      next.searchParams.set(pagination.param!, String(current + step));
+    }
 
     // A page number past the end is usually answered with the first page again rather than with an
     // error, so the rows themselves decide whether we actually moved.

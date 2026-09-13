@@ -398,3 +398,45 @@ test('a detail rule that follows a column the list never collects is refused at 
     /detail.follow names "nowhere"/,
   );
 });
+
+/**
+ * Where the page number lives differs between boards, and getting it wrong is invisible.
+ *
+ * A site that paginates by path answers the query form with the first page again — forever. The walk
+ * then stops after one page and reports a healthy run, because one page of rows did come back.
+ */
+test('a numbered pager can keep its number in the address, not only in the query', async () => {
+  const { parseScenario } = await import('../src/scenario.ts');
+
+  const byPath = parseScenario({
+    name: 'board', version: 1, url: 'https://example.test/rent',
+    wait: { selector: '.card', minCount: 1, timeoutMs: 1000, settleMs: 0 },
+    list: { rows: '.card', fields: { title: { type: 'text' } } },
+    pagination: { type: 'number', path: '/p{n}', maxPages: 5 },
+    expect: { minRowsPerPage: 1 },
+  });
+  assert.equal(byPath.pagination.path, '/p{n}');
+
+  // …and a pager that says neither is a scraper that will walk one page and call it a board.
+  assert.throws(
+    () => parseScenario({
+      name: 'board', version: 1, url: 'https://example.test/rent',
+      wait: { selector: '.card', minCount: 1, timeoutMs: 1000, settleMs: 0 },
+      list: { rows: '.card', fields: { title: { type: 'text' } } },
+      pagination: { type: 'number', maxPages: 5 },
+      expect: { minRowsPerPage: 1 },
+    }),
+    /where the number goes/,
+  );
+
+  assert.throws(
+    () => parseScenario({
+      name: 'board', version: 1, url: 'https://example.test/rent',
+      wait: { selector: '.card', minCount: 1, timeoutMs: 1000, settleMs: 0 },
+      list: { rows: '.card', fields: { title: { type: 'text' } } },
+      pagination: { type: 'number', path: '/page2', maxPages: 5 },
+      expect: { minRowsPerPage: 1 },
+    }),
+    /as \{n\}/,
+  );
+});

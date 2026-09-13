@@ -53,6 +53,25 @@ empty site.
 - `{"type": "button", "next": "...", "maxPages": N}` — click a control that loads the next page
 - `{"type": "scroll", "maxRounds": N, "settleMs": M}` — infinite scroll; each round re-reads the whole
   document, because that is what infinite scroll actually does
+- `{"type": "param", "param": "before", "from": "id", "maxPages": N}` — a cursor taken from the last
+  row on the page, which is how message archives and many APIs-behind-HTML work
+- `{"type": "number", ..., "maxPages": N}` — a plain numbered pager, where the number is the only
+  durable thing about it: the class marking the current page is generated at build time and changes
+  with the site's next deploy
+
+A numbered pager has to say **where the number goes**, and there are two places:
+
+```json
+{ "type": "number", "param": "page", "maxPages": 20 }   // ?page=2
+{ "type": "number", "path": "/p{n}", "maxPages": 20 }   // /p2, /page/2, /trang-2
+```
+
+`{n}` is where the number lands. Page one is the address as written; the numbering starts at `start`
+(2 by default) and moves by `step`.
+
+Getting this wrong is invisible, which is why it is refused rather than guessed: a site that paginates
+by path answers the query form with the **first page again**, every time. The walk then stops after one
+page and reports a healthy run, because one page of rows did come back.
 
 Pagination always has a budget. A scenario cannot walk a site forever.
 

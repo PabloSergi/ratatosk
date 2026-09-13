@@ -89,11 +89,23 @@ export type PaginationRule =
       maxPages: number;
     }
   /**
-   * A numbered pager: ?page=2, ?page=3, and so on. No cursor, no next link — most job boards mark the
+   * A numbered pager: page two, page three, and so on. No cursor, no next link — most boards mark the
    * page they are on with a class that is generated at build time and changes with the next deploy,
    * so the only durable thing about such a pager is the number itself.
+   *
+   * Where the number lives differs, and both are common enough to support outright: `param` puts it in
+   * the query (`?page=2`), `path` in the address itself (`/p2`, `/page/2`, `/trang-2`) with `{n}`
+   * standing in for the number. A site that paginates by path usually answers the query form with the
+   * first page again, forever — which looks like a walk that ends after one page and is not.
    */
-  | { type: 'number'; param: string; start?: number; step?: number; maxPages: number }
+  | {
+      type: 'number';
+      param?: string;
+      path?: string;
+      start?: number;
+      step?: number;
+      maxPages: number;
+    }
   | { type: 'link'; next: string; maxPages: number }
   | { type: 'button'; next: string; maxPages: number }
   | { type: 'scroll'; maxRounds: number; settleMs: number };
@@ -147,6 +159,12 @@ export function parseScenario(raw: string | unknown): Scenario {
 
   const pagination = data['pagination'];
   if (!isRecord(pagination)) throw new ScenarioError(`${name}: pagination is required, use {"type":"none"}`);
+  if (pagination['type'] === 'number' && !pagination['param'] && !pagination['path']) {
+    throw new ScenarioError(`${name}: a numbered pager needs to know where the number goes — "param" or "path"`);
+  }
+  if (typeof pagination['path'] === 'string' && !pagination['path'].includes('{n}')) {
+    throw new ScenarioError(`${name}: pagination path must say where the number goes, as {n} — e.g. "/p{n}"`);
+  }
 
   const expect = isRecord(data['expect']) ? data['expect'] : {};
   return {
