@@ -75,6 +75,21 @@ page and reports a healthy run, because one page of rows did come back.
 
 Pagination always has a budget. A scenario cannot walk a site forever.
 
+## pace
+
+```json
+{ "pace": 3000 }
+```
+
+How long to wait between page loads, in milliseconds. Absent means the engine's own small pause —
+enough for a quiet site, not enough for a guarded one.
+
+A walk goes as fast as the machine allows, which is faster than any person reads, and that is exactly
+what a source watching its traffic notices. The arithmetic is worth doing once: twenty pages at three
+seconds is a minute longer than at full speed, and being noticed costs the source entirely.
+
+Applies to every kind of pagination, and to the walk into rows.
+
 ## expect
 
 `minRowsPerPage` is what a healthy page looks like. Falling below it stops the walk and shows up in the

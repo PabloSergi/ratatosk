@@ -274,7 +274,7 @@ async function walkIntoRows(
 
     try {
       await page.goto(where);
-      await page.waitMs(400);
+      await page.waitMs(scenario.pace ?? 400);
       // One block — the page itself — read with the same extractor the list uses.
       const raw = await page.evaluate<unknown>(EXTRACTOR_SOURCE, { rows: 'html', fields: detail.fields });
       const found = asExtractResult(raw, where).rows[0] ?? {};
@@ -317,7 +317,7 @@ async function goToNextPage(
 
     const before = await rowsSignature(page, scenario.list.rows);
     await page.goto(next.href);
-    await page.waitMs(1000);
+    await page.waitMs(scenario.pace ?? 1000);
     return (await rowsSignature(page, scenario.list.rows)) !== before;
   }
 
@@ -370,7 +370,11 @@ async function goToNextPage(
   const deadline = Date.now() + PAGE_TURN_TIMEOUT_MS;
   while (Date.now() < deadline) {
     await page.waitMs(250);
-    if ((await rowsSignature(page, scenario.list.rows)) !== before) return true;
+    if ((await rowsSignature(page, scenario.list.rows)) !== before) {
+      // The page has turned; the pace is what we owe the source before reading the next one.
+      if (scenario.pace) await page.waitMs(scenario.pace);
+      return true;
+    }
   }
   throw new Error(`the page did not change within ${PAGE_TURN_TIMEOUT_MS}ms after clicking "${pagination.next}"`);
 }

@@ -440,3 +440,19 @@ test('a numbered pager can keep its number in the address, not only in the query
     /as \{n\}/,
   );
 });
+
+test('a walk waits as long as the scenario says between pages', async () => {
+  const { parseScenario } = await import('../src/scenario.ts');
+
+  // A walk goes as fast as the machine allows, which is faster than any person reads, and that is
+  // exactly what a guarded source notices. Minutes against losing the source.
+  const paced = parseScenario({
+    name: 'board', version: 1, url: 'https://example.test/rent',
+    wait: { selector: '.card', minCount: 1, timeoutMs: 1000, settleMs: 0 },
+    list: { rows: '.card', fields: { title: { type: 'text' } } },
+    pagination: { type: 'number', path: '/p{n}', maxPages: 5 },
+    pace: 3000,
+    expect: { minRowsPerPage: 1 },
+  });
+  assert.equal(paced.pace, 3000);
+});

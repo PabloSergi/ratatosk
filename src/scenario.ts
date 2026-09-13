@@ -28,6 +28,17 @@ export interface Scenario {
    * from a sensor, the same line meaning something new every time it appears.
    */
   dedupe?: boolean;
+  /**
+   * How long to wait between page loads, in milliseconds.
+   *
+   * A walk goes as fast as the machine allows, which is faster than any person reads and is exactly
+   * what a source notices. The cost of slowing down is minutes; the cost of being noticed is the
+   * source, so this is worth setting on anything that watches.
+   *
+   * Absent means the engine's own small pause, which is enough for a quiet site and not enough for a
+   * guarded one.
+   */
+  pace?: number;
   /** What a healthy run looks like. Falling below this is a broken run, not an empty site. */
   expect: { minRowsPerPage: number };
   /** Which of the account's proxies to go through, if any. Sites block by address, not by selector. */
