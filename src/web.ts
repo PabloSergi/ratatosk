@@ -32,7 +32,7 @@ import {
   isBrowserRobot,
   saveRobot,
 } from './robots.js';
-import { catalogueOf, forgetCatalogue, goneFrom } from './catalogue.js';
+import { catalogueOf, forgetCatalogue, goneFrom, lastPassOf } from './catalogue.js';
 import { photosFor } from './photos.js';
 import { loadRules, type SiteRule } from './rules.js';
 import {
@@ -862,9 +862,11 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
       throw new InputError(`${name} does not keep a catalogue, so nothing can be said about what left it`);
     }
 
+    // The boundary comes from the catalogue itself. Taking it from the journal of runs compares two
+    // different clocks — a run is stamped there when it ended and here when it began — and every row
+    // the last pass saw then reads as missing.
     const asked = String(body['since'] ?? '').trim();
-    const runs = await keptRuns(user.id, name);
-    const since = asked || runs[0]?.at;
+    const since = asked || (await lastPassOf(user.id, name));
     if (!since) throw new InputError(`${name} has not completed a pass yet`);
     if (Number.isNaN(Date.parse(since))) throw new InputError(`"${asked}" is not a time`);
 

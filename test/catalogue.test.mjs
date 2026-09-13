@@ -85,3 +85,24 @@ test('a scraper that goes takes its catalogue with it', async () => {
   await forgetCatalogue('u1', 'flats');
   assert.deepEqual(await catalogueOf('u1', 'flats'), []);
 });
+
+/**
+ * The same mistake three times, so it gets a test.
+ *
+ * A run is written into the journal when it finishes and into the catalogue when it starts. Measuring
+ * "gone" from the journal's timestamp therefore marks every row the run just saw as missing — the
+ * whole source vanishing at once, silently, and whatever cleans up behind it deleting all of it.
+ */
+test('the boundary for what is gone comes from the catalogue, not from another clock', async () => {
+  const { keepSeen, goneFrom, lastPassOf } = await load();
+
+  // The pass began at 08:00 and its rows are stamped so. The journal will stamp it 08:06, when it ended.
+  await keepSeen('u1', 'flats', [listing('1', 100), listing('2', 200)], 'id', '2026-09-13T08:00:00Z');
+
+  const boundary = await lastPassOf('u1', 'flats');
+  assert.equal(boundary, '2026-09-13T08:00:00Z', 'граница — когда каталог в последний раз писали');
+  assert.deepEqual(await goneFrom('u1', 'flats', boundary), [], 'то, что проход только что видел, не пропало');
+
+  // …whereas the journal's own timestamp would have condemned both rows.
+  assert.equal((await goneFrom('u1', 'flats', '2026-09-13T08:06:00Z')).length, 2);
+});

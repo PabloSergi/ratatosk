@@ -110,6 +110,27 @@ export async function catalogueOf(
     .slice(0, limit);
 }
 
+/**
+ * When this catalogue was last written to.
+ *
+ * The boundary for "gone" has to come from here and nowhere else. A run is stamped in the journal when
+ * it finished and in the catalogue when it began, so measuring one against the other marks every row
+ * the run saw as missing — which is not a subtle failure, it is the whole source disappearing at once.
+ */
+export async function lastPassOf(userId: string, scraper: string): Promise<string | undefined> {
+  if (usingDatabase()) {
+    const pool = await db();
+    const { rows } = await pool.query<{ last: Date | null }>(
+      'SELECT max(last_seen) AS last FROM catalogue WHERE user_id = $1 AND scraper = $2',
+      [userId, scraper],
+    );
+    return rows[0]?.last ? rows[0].last.toISOString() : undefined;
+  }
+
+  const had = Object.values(await readCatalogue(catalogueFileFor(userId, scraper)));
+  return had.length ? had.reduce((latest, one) => (one.lastSeen > latest ? one.lastSeen : latest), '') : undefined;
+}
+
 /** What the source has stopped holding: listed once, and not seen since the given moment. */
 export async function goneFrom(userId: string, scraper: string, since: string): Promise<Listed[]> {
   if (usingDatabase()) {
