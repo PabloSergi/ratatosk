@@ -396,16 +396,32 @@ export async function challengeSeen(page: PageDriver): Promise<string | undefine
   return seen ?? undefined;
 }
 
-/** Cheap fingerprint of what is on screen: how many rows, and what the first few say. */
+/**
+ * Cheap fingerprint of what is on screen, used to tell a page that turned from one that did not.
+ *
+ * Taken from across the page rather than off the top of it, and that is the whole point: boards pin
+ * promoted listings to the head of every page, so the first rows are identical on page one and page
+ * eleven. A fingerprint of those says "we never moved" and stops the walk on its second page — a
+ * scraper that reports a healthy run and returns a thirtieth of the board.
+ */
+export function signatureOf(count: number, texts: string[]): string {
+  return `${count}|${texts.map((one) => one.replace(/\s+/g, ' ').trim().slice(0, 60)).join('|')}`;
+}
+
+/** Which rows to look at: the first, the middle and the last. Only the first are ever pinned. */
 export async function rowsSignature(page: PageDriver, rowsSelector: string): Promise<string> {
-  return page.evaluate<string>(
+  const seen = await page.evaluate<{ count: number; texts: string[] }>(
     `(selector) => {
        const blocks = Array.from(document.querySelectorAll(selector));
-       const head = blocks.slice(0, 3).map((b) => (b.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 60));
-       return blocks.length + '|' + head.join('|');
+       const at = [0, Math.floor(blocks.length / 2), blocks.length - 1, blocks.length - 2];
+       const texts = at
+         .filter((n) => n >= 0 && n < blocks.length)
+         .map((n) => (blocks[n].textContent || ''));
+       return { count: blocks.length, texts };
      }`,
     rowsSelector,
   );
+  return signatureOf(seen.count, seen.texts);
 }
 
 /** Browser errors arrive as multi-line call logs. A status line wants the first line of it. */

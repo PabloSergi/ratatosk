@@ -27,7 +27,10 @@ class FakePage {
     }
     if (fn.includes('node.remove()')) return 3;
     if (fn.includes('document.querySelector(selector)')) return this.pageIndex < this.pages - 1;
-    if (fn.includes('blocks.length')) return `${this.rowsPerPage}|page ${this.pageIndex}`;
+    if (fn.includes('blocks.length')) {
+      // What the browser hands back: how many rows, and the text of a few of them from across the page.
+      return { count: this.rowsPerPage, texts: [`pinned`, `page ${this.pageIndex} middle`, `page ${this.pageIndex} last`] };
+    }
     if (fn.includes('scrollHeight')) return 1000;
     return null;
   }
@@ -455,4 +458,22 @@ test('a walk waits as long as the scenario says between pages', async () => {
     expect: { minRowsPerPage: 1 },
   });
   assert.equal(paced.pace, 3000);
+});
+
+/**
+ * Boards pin promoted listings to the head of every page. A fingerprint taken off the top is therefore
+ * the same on page one and page eleven, the walk decides it never moved, and a scraper returns a
+ * thirtieth of the board while reporting a perfectly healthy run.
+ */
+test('a page whose top is pinned is still recognised as a different page', async () => {
+  const { signatureOf } = await import('../src/run.ts');
+
+  const pinned = 'PROMOTED · Victoria Village 2PN 12 triệu';
+  const pageOne = signatureOf(30, [pinned, 'Sunrise City 3PN', 'Masteri Thao Dien', 'Vinhomes Central']);
+  const pageTwo = signatureOf(30, [pinned, 'The Sun Avenue 2PN', 'Saigon Pearl', 'Lexington Residence']);
+
+  assert.notEqual(pageOne, pageTwo, 'страницы различаются по тому, что ниже закреплённых');
+
+  // …and the same page read twice is still the same page.
+  assert.equal(pageTwo, signatureOf(30, [pinned, 'The Sun Avenue 2PN', 'Saigon Pearl', 'Lexington Residence']));
 });
