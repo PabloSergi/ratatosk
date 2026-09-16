@@ -20,7 +20,13 @@ export interface SiteRule {
   /** Substring of the URL, or /regex/ if wrapped in slashes. */
   match: string;
   remove?: string[];
-  click?: string[];
+  /**
+   * A control to press. Either a selector, or — for the controls that have no selector worth the name
+   * — the thing that is written on it: `{"selector": "div[role=button]", "text": "See more"}`. Every
+   * site has a few of these, and on the sites built from generated class names they are the only ones
+   * a person could describe out loud.
+   */
+  click?: Array<string | { selector: string; text: string }>;
   /**
    * How this site continues, when no control on the page says so — a message archive walks backwards
    * by cursor, not by a "next" button. It is a hint, not a fact: the probe still has to use it and
@@ -49,19 +55,44 @@ export async function applyRules(page: PageDriver, rules: SiteRule[]): Promise<s
       if (removed > 0) applied.push(`${rule.name}: removed ${removed} element(s)`);
     }
 
-    for (const selector of rule.click ?? []) {
+    for (const control of rule.click ?? []) {
+      if (typeof control !== 'string') {
+        const pressed = await page.evaluate<boolean>(CLICK_WHAT_IT_SAYS, control);
+        if (pressed) applied.push(`${rule.name}: pressed "${control.text}"`);
+        continue;
+      }
       const present = await page.evaluate<boolean>(
         `(selector) => Boolean(document.querySelector(selector))`,
-        selector,
+        control,
       );
       if (!present) continue;
-      await page.click(selector);
-      applied.push(`${rule.name}: clicked ${selector}`);
+      await page.click(control);
+      applied.push(`${rule.name}: clicked ${control}`);
     }
   }
 
   return applied;
 }
+
+/**
+ * The control that says a particular thing, pressed in the page.
+ *
+ * Pressed from inside rather than through the driver because what is being looked for is text, and a
+ * selector language that can match text belongs to one driver. A click dispatched on the element is a
+ * real one either way — the frameworks these pages are built with listen for it at the document.
+ */
+const CLICK_WHAT_IT_SAYS = `
+(control) => {
+  const wanted = String(control.text).trim().toLowerCase();
+  for (const node of Array.from(document.querySelectorAll(control.selector))) {
+    const said = (node.innerText || node.textContent || '').trim().toLowerCase();
+    if (said === wanted || said.includes(wanted)) {
+      node.click();
+      return true;
+    }
+  }
+  return false;
+}`;
 
 /**
  * Removing an overlay is not enough on its own: these things lock the page behind them, so the

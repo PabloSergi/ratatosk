@@ -1,0 +1,5 @@
+{
+  "name": "facebook marketplace: unfold the description",
+  "match": "facebook.com/marketplace/item/",
+  "click": [{ "selector": "div[role=\"button\"]", "text": "See more" }]
+}

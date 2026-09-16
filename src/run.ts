@@ -163,7 +163,7 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
   let visited = 0;
   if (scenario.detail && rows.length > 0) {
     try {
-      visited = await walkIntoRows(page, scenario, rows);
+      visited = await walkIntoRows(page, scenario, rows, options.rules ?? [], rulesApplied);
     } catch (error) {
       paginationStopped = paginationStopped ?? `the walk into rows stopped: ${firstLine(error)}`;
     }
@@ -257,6 +257,8 @@ async function walkIntoRows(
   page: PageDriver,
   scenario: Scenario,
   rows: Array<Record<string, string | null>>,
+  rules: SiteRule[],
+  rulesApplied: string[],
 ): Promise<number> {
   const detail = scenario.detail!;
   const seen = new Map<string, Record<string, string | null>>();
@@ -276,6 +278,9 @@ async function walkIntoRows(
     try {
       await page.goto(where);
       await page.waitMs(scenario.pace ?? 400);
+      // The same site, so the same rules: a page deeper in is where a "see more" hides the description
+      // and a banner covers the rest. Firing them only on the first page reads half of every posting.
+      if (rules.length) rulesApplied.push(...(await applyRules(page, rules)));
       // One block — the page itself — read with the same extractor the list uses.
       const raw = await page.evaluate<unknown>(EXTRACTOR_SOURCE, { rows: 'html', fields: detail.fields });
       const found = asExtractResult(raw, where).rows[0] ?? {};

@@ -516,3 +516,45 @@ test('a feed that throws away what scrolled past is still collected whole', asyn
   assert.equal(result.rows[0].title, 'posting 0');
   assert.equal(result.rows.at(-1).title, 'posting 11');
 });
+
+/**
+ * A posting whose text is behind a "see more". The list page is readable without it; the page one
+ * deeper is not, and that is the page the description lives on.
+ */
+class FoldedDetail extends FakePage {
+  constructor() {
+    super({ rowsPerPage: 1, pages: 1 });
+    this.unfolded = false;
+  }
+  async goto(url) { this.url = url; this.unfolded = false; }
+  async click(selector) { if (selector.includes('see more')) this.unfolded = true; }
+  async evaluate(fn, argument) {
+    if (fn.includes('blocksSeen')) {
+      if (argument?.rows === 'html') {
+        return { rows: [{ body: this.unfolded ? 'the whole posting' : null }], blocksSeen: 1, missing: {} };
+      }
+      return { rows: [{ title: 'a posting', link: 'https://example.com/posting/1' }], blocksSeen: 1, missing: {} };
+    }
+    if (fn.includes('document.querySelector(selector)')) return String(argument).includes('see more');
+    return super.evaluate(fn, argument);
+  }
+}
+
+test('a rule that unfolds a page fires on the page it is needed on', async () => {
+  const page = new FoldedDetail();
+  const scenario = parseScenario(
+    JSON.stringify({
+      ...base,
+      list: { rows: '.card', fields: { title: { type: 'text' }, link: { type: 'attr', attr: 'href' } } },
+      detail: { follow: 'link', fields: { body: { type: 'text', selector: '.body' } } },
+      expect: { minRowsPerPage: 1 },
+    }),
+  );
+  const result = await runScenario(page, scenario, {
+    rules: [{ name: 'unfold', match: 'example.com', click: ['text=see more'] }],
+  });
+
+  assert.equal(result.status, 'ok', JSON.stringify(result));
+  assert.equal(result.rows[0].body, 'the whole posting');
+  assert.ok(result.rulesApplied.some((what) => what.includes('unfold')), 'the run says the rule fired');
+});
