@@ -51,8 +51,12 @@ empty site.
 - `{"type": "none"}` — single page, and the engine visits exactly one
 - `{"type": "link", "next": "...", "maxPages": N}` — follow a link
 - `{"type": "button", "next": "...", "maxPages": N}` — click a control that loads the next page
-- `{"type": "scroll", "maxRounds": N, "settleMs": M}` — infinite scroll; each round re-reads the whole
-  document, because that is what infinite scroll actually does
+- `{"type": "scroll", "maxRounds": N, "settleMs": M}` — infinite scroll. A round moves one screen down
+  whatever is actually scrolling: on most feeds the page does not scroll at all, the rows sit in a box
+  with its own scrollbar. Rows are kept as each round sees them, because a long feed recycles its nodes
+  — what scrolled off is no longer in the document, and a walk that read the document at the end would
+  come back with the last screen and call it the site. Repeats across rounds are collapsed whether or
+  not `dedupe` is on; there is no other way to read the same list twice
 - `{"type": "param", "param": "before", "from": "id", "maxPages": N}` — a cursor taken from the last
   row on the page, which is how message archives and many APIs-behind-HTML work
 - `{"type": "number", ..., "maxPages": N}` — a plain numbered pager, where the number is the only

@@ -477,3 +477,42 @@ test('a page whose top is pinned is still recognised as a different page', async
   // …and the same page read twice is still the same page.
   assert.equal(pageTwo, signatureOf(30, [pinned, 'The Sun Avenue 2PN', 'Saigon Pearl', 'Lexington Residence']));
 });
+
+/**
+ * A feed that recycles its nodes: only a handful of rows are in the document at any moment, and the
+ * ones scrolled past are gone. Reading the document at the end of the walk would find the last screen
+ * and nothing else — so what each round sees has to be kept as it is seen.
+ */
+class RecyclingFeed extends FakePage {
+  constructor(options) {
+    super(options);
+    this.at = 0;
+    this.window_ = 3;
+    this.total = 12;
+  }
+  async evaluate(fn) {
+    if (fn.includes('scrollTop')) {
+      if (this.at + this.window_ >= this.total) return false;
+      this.at += this.window_;
+      return true;
+    }
+    if (fn.includes('blocksSeen')) {
+      const rows = Array.from({ length: this.window_ }, (_, step) => ({ title: `posting ${this.at + step}` }));
+      return { rows, blocksSeen: rows.length, missing: {} };
+    }
+    return super.evaluate(fn);
+  }
+}
+
+test('a feed that throws away what scrolled past is still collected whole', async () => {
+  const page = new RecyclingFeed();
+  const scenario = parseScenario(
+    JSON.stringify({ ...base, pagination: { type: 'scroll', maxRounds: 10, settleMs: 0 }, expect: { minRowsPerPage: 1 } }),
+  );
+  const result = await runScenario(page, scenario);
+
+  assert.equal(result.status, 'ok');
+  assert.equal(result.rows.length, 12, 'every screen the walk went past is in the result');
+  assert.equal(result.rows[0].title, 'posting 0');
+  assert.equal(result.rows.at(-1).title, 'posting 11');
+});

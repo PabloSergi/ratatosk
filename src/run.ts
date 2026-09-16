@@ -117,12 +117,7 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
       throw error;
     }
 
-    if (scenario.pagination.type === 'scroll') {
-      // Infinite scroll keeps growing the same document, so every round re-reads all rows.
-      rows.length = 0;
-      collected.clear();
-      duplicates = 0;
-    } else {
+    if (scenario.pagination.type !== 'scroll') {
       const fingerprint = JSON.stringify(lastExtract.rows.slice(0, 3));
       if (seenPages.has(fingerprint)) {
         paginationStopped = 'the pager came back to a page already read';
@@ -134,7 +129,13 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
       // The memory's notion of "the same row", minus its tolerance for bumps: nobody bumped a posting
       // in the three seconds between page one and page two, so two rows differing by their last word
       // are two rows.
-      const key = dedupe ? sameRowInThisRun(row) : undefined;
+      // A scrolling list always re-reads rows it has already handed over — the rows on screen did not
+      // move just because the page did. And a list that recycles its nodes, which every long feed now
+      // does, throws away what scrolled off: whatever a round saw has to be kept as it is seen, not
+      // gathered at the end from a document that no longer holds it. So a scroll always collapses
+      // repeats, whether or not the scenario asked for it.
+      const collapse = dedupe || scenario.pagination.type === 'scroll';
+      const key = collapse ? sameRowInThisRun(row) : undefined;
       if (key && collected.has(key)) {
         duplicates++;
         continue;
@@ -296,6 +297,33 @@ export async function scrapeCurrentPage(page: PageDriver, scenario: Scenario): P
 }
 
 /**
+ * One screen further down whatever is actually scrolling.
+ *
+ * Two things the old "scroll the window to the bottom" got wrong on any modern feed. The page itself
+ * often does not scroll — the rows live in a box with its own scrollbar, and the window stays exactly
+ * where it was. And jumping to the bottom skips everything in between, which is free on a list that
+ * only grows and ruinous on one that recycles its nodes: the rows passed over are gone from the
+ * document before anyone read them. So it moves by a screen at a time, and reports whether it moved.
+ */
+const SCROLL_A_SCREEN = `(selector) => {
+  const row = document.querySelector(selector);
+  let box = row ? row.parentElement : null;
+  while (box) {
+    const flow = getComputedStyle(box).overflowY;
+    if ((flow === 'auto' || flow === 'scroll') && box.scrollHeight > box.clientHeight + 40) break;
+    box = box.parentElement;
+  }
+  if (box) {
+    const was = box.scrollTop;
+    box.scrollTop = was + Math.round(box.clientHeight * 0.8);
+    return box.scrollTop > was;
+  }
+  const was = window.scrollY;
+  window.scrollBy(0, Math.round(window.innerHeight * 0.8));
+  return window.scrollY > was;
+}`;
+
+/**
  * Turning the page is not the same as the page having turned. On a client-rendered site the click
  * changes nothing the browser calls a navigation, so we watch the rows themselves: same rows after
  * the click means we never moved, and collecting them twice would be worse than stopping.
@@ -351,11 +379,9 @@ async function goToNextPage(
   }
 
   if (pagination.type === 'scroll') {
-    const before = await page.evaluate<number>(`() => document.body.scrollHeight`);
-    await page.evaluate(`() => window.scrollTo(0, document.body.scrollHeight)`);
+    const moved = await page.evaluate<boolean>(SCROLL_A_SCREEN, scenario.list.rows);
     await page.waitMs(pagination.settleMs);
-    const after = await page.evaluate<number>(`() => document.body.scrollHeight`);
-    return after > before;
+    return moved;
   }
 
   const present = await page.evaluate<boolean>(
