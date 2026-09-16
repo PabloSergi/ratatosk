@@ -15,7 +15,8 @@
  *   flats nobody can rent any more.
  *
  * Usage: RATATOSK_KEY=… node scripts/fetch-images.mjs <scraper> [--set webp|medium|full]
- *                                                     [--dir PATH] [--parallel N] [--base URL]
+ *                                                     [--column NAME] [--dir PATH]
+ *                                                     [--parallel N] [--base URL]
  */
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -51,24 +52,36 @@ async function ask(path, body) {
   return answer.json();
 }
 
-/** The column each set of links lives in, as the scraper named them. */
+/**
+ * The column the links live in. The three sets are what a feed of that shape calls them; every other
+ * board names its gallery something of its own, and `--column` says which one without this script
+ * having to know about each board.
+ */
 const COLUMN = { webp: 'img_webp', medium: 'img_medium', full: 'img_full' };
-const column = COLUMN[which];
+const column = argOf('--column') ?? COLUMN[which];
 if (!column) {
-  console.error(`--set must be one of ${Object.keys(COLUMN).join(', ')}`);
+  console.error(`--set must be one of ${Object.keys(COLUMN).join(', ')}, or name the column with --column`);
   process.exit(2);
 }
 
-/** A column holds either one address or a list of them, written as JSON by the feed reader. */
+/**
+ * A column holds one address, a JSON list of them, or several written one per line — which is what a
+ * page walk produces when a field is asked for every match rather than the first.
+ */
 function addressesIn(value) {
   if (!value) return [];
-  if (!value.startsWith('[')) return [value];
-  try {
-    const list = JSON.parse(value);
-    return Array.isArray(list) ? list.filter((one) => typeof one === 'string') : [];
-  } catch {
-    return [];
+  if (value.startsWith('[')) {
+    try {
+      const list = JSON.parse(value);
+      return Array.isArray(list) ? list.filter((one) => typeof one === 'string') : [];
+    } catch {
+      return [];
+    }
   }
+  return value
+    .split('\n')
+    .map((one) => one.trim())
+    .filter((one) => /^https?:\/\//.test(one));
 }
 
 const kept = (await ask('/api/results', { name: scraper })).kept;
