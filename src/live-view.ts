@@ -146,6 +146,7 @@ export function viewerPage(token: string, url: string): string {
   .bar .where { color: var(--signal); font-family: var(--mono); font-size: 13px; }
   #hint { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--ink-faint); }
   #stage { display: flex; justify-content: center; padding: 16px; }
+  #stage:focus { outline: 2px solid var(--signal); outline-offset: -2px; }
   #screen {
     max-width: 100%;
     cursor: crosshair;
