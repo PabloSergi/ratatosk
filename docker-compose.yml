@@ -62,6 +62,8 @@ services:
       RATATOSK_RESULTS: /app/results
       RATATOSK_IMAGES: /app/images
       RATATOSK_CATALOGUE: /app/catalogue
+      # A sign-in with a second factor does not fit into fifteen minutes.
+      RATATOSK_TAKEOVER_MS: ${RATATOSK_TAKEOVER_MS:-2700000}
       # With this set, runs are kept in Postgres; without it, in files. Nothing else decides.
       RATATOSK_DB: postgres://${POSTGRES_USER:-ratatosk}:${POSTGRES_PASSWORD:-ratatosk}@db:5432/${POSTGRES_DB:-ratatosk}
       RATATOSK_REDIS: redis://queue:6379

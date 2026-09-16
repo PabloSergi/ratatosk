@@ -1340,7 +1340,7 @@ const server = createServer((request: IncomingMessage, response: ServerResponse)
           else if (body['type'] === 'up') await control.up(at.x, at.y);
           else if (body['type'] === 'wheel') await control.wheel(at.x, at.y, Number(body['dy'] ?? 0));
           else if (body['type'] === 'write') await control.write(String(body['text'] ?? ''));
-          else if (body['type'] === 'key') await control.key(String(body['name'] ?? ''));
+          else if (body['type'] === 'key') await control.key(String(body['name'] ?? ''), body['text'] ? String(body['text']) : undefined);
           response.writeHead(200, { 'content-type': 'application/json' }).end('{"done":true}');
         },
         () => response.writeHead(400).end('{"error":"bad input"}'),

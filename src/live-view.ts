@@ -167,14 +167,14 @@ export function viewerPage(token: string, url: string): string {
 <div class="bar">
   <i class="mark" aria-hidden="true">ᚱ</i>
   <b class="where">${escape_(url)}</b>
-  <span class="meta">press straight on the picture — it lands where you pressed, however far behind the frame is</span>
+  <span class="meta">press on the picture, then just type — keys go straight to the page</span>
   <span id="hint">waiting for the first frame…</span>
 </div>
 
-<div id="stage"><img id="screen" alt="the page" draggable="false"></div>
+<div id="stage" tabindex="0"><img id="screen" alt="the page" draggable="false"></div>
 
 <div class="keys">
-  <input type="text" id="text" placeholder="type here, then Enter — goes to whatever the page has focused">
+  <input type="text" id="text" placeholder="or paste a long string here and press Enter">
   <button data-key="Enter">Enter</button>
   <button data-key="Tab">Tab</button>
   <button data-key="Backspace">Backspace</button>
@@ -298,6 +298,27 @@ for (const button of document.querySelectorAll('[data-scroll]')) {
     void send({ type: 'wheel', ...middle, dy: Number(button.dataset.scroll) });
   });
 }
+
+// Typing straight into the page, the way any remote screen works. The box below stays for pasting a
+// long string, but nobody should have to find it to write a password.
+const stage = document.getElementById('stage');
+stage.focus();
+stage.addEventListener('mousedown', () => stage.focus());
+
+stage.addEventListener('keydown', (event) => {
+  if (event.metaKey || event.ctrlKey || event.altKey) return; // leave the browser's own shortcuts alone
+  event.preventDefault();
+  const printable = event.key.length === 1;
+  void send({ type: 'key', name: event.key, ...(printable ? { text: event.key } : {}) });
+});
+
+// Pasting is one event, not thirty keystrokes — and a password manager fills a field this way.
+stage.addEventListener('paste', (event) => {
+  const text = (event.clipboardData || window.clipboardData).getData('text');
+  if (!text) return;
+  event.preventDefault();
+  void send({ type: 'write', text });
+});
 
 document.getElementById('text').addEventListener('keydown', (event) => {
   if (event.key !== 'Enter') return;

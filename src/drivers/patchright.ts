@@ -29,7 +29,7 @@ export interface LiveControl {
   up(x: number, y: number): Promise<void>;
   wheel(x: number, y: number, dy: number): Promise<void>;
   write(text: string): Promise<void>;
-  key(name: string): Promise<void>;
+  key(name: string, text?: string): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -288,16 +288,40 @@ async function liveControl(context: BrowserContext, page: Page): Promise<LiveCon
       await cdp.send('Input.insertText', { text });
     },
 
-    key: async (name) => {
-      const keys: Record<string, { key: string; code: string; windowsVirtualKeyCode: number; text?: string }> = {
-        Enter: { key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' },
-        Tab: { key: 'Tab', code: 'Tab', windowsVirtualKeyCode: 9 },
-        Backspace: { key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 },
-        Escape: { key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 },
+    key: async (name, text) => {
+      /**
+       * The keys that are not characters. Everything else — a letter, a digit, a punctuation mark —
+       * is sent as itself, because a remote screen where only four keys work is not a screen anyone
+       * can log in through, and logging in is what this is for.
+       */
+      const named: Record<string, { code: string; windowsVirtualKeyCode: number; text?: string }> = {
+        Enter: { code: 'Enter', windowsVirtualKeyCode: 13, text: '\r' },
+        Tab: { code: 'Tab', windowsVirtualKeyCode: 9 },
+        Backspace: { code: 'Backspace', windowsVirtualKeyCode: 8 },
+        Escape: { code: 'Escape', windowsVirtualKeyCode: 27 },
+        Delete: { code: 'Delete', windowsVirtualKeyCode: 46 },
+        ArrowLeft: { code: 'ArrowLeft', windowsVirtualKeyCode: 37 },
+        ArrowUp: { code: 'ArrowUp', windowsVirtualKeyCode: 38 },
+        ArrowRight: { code: 'ArrowRight', windowsVirtualKeyCode: 39 },
+        ArrowDown: { code: 'ArrowDown', windowsVirtualKeyCode: 40 },
+        Home: { code: 'Home', windowsVirtualKeyCode: 36 },
+        End: { code: 'End', windowsVirtualKeyCode: 35 },
+        PageUp: { code: 'PageUp', windowsVirtualKeyCode: 33 },
+        PageDown: { code: 'PageDown', windowsVirtualKeyCode: 34 },
       };
-      const stroke = keys[name];
+
+      const typed = text ?? (name.length === 1 ? name : undefined);
+      if (!named[name] && typed) {
+        // A character: down with the text on it, then up. Sites that watch keystrokes — every login
+        // form worth the name — see a real key, not text appearing out of nowhere.
+        await cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: name, text: typed, unmodifiedText: typed });
+        await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: name });
+        return;
+      }
+
+      const stroke = named[name];
       if (!stroke) return;
-      await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', ...stroke });
+      await cdp.send('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: name, ...stroke });
       await cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', ...stroke });
     },
 
