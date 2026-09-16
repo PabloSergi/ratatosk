@@ -72,6 +72,18 @@ export async function openBrowser(
   const headed = process.env['RATATOSK_HEADED'] === '1';
   const headless = options.headless ?? !headed;
   const profileDir = options.profileDir ?? process.env['RATATOSK_PROFILE'] ?? '';
+
+  // A browser that outlives this process, if one is offered. See browser-host.ts: what a site decided
+  // about a visitor is partly in the running browser, so the browser must not be restarted every time
+  // the code is.
+  const host = process.env['RATATOSK_BROWSER_HOST'];
+  if (host && profileDir) {
+    const connected = await connectThrough(host, profileDir, options.proxy);
+    if (connected) return connected;
+    // Saying so and carrying on: a scrape from a browser of our own is worth more than a failed run,
+    // and the reason must be in the log rather than in somebody's afternoon.
+    console.error(`browser host ${host} would not give a browser for ${profileDir}; starting one here instead`);
+  }
   // Which screen this browser appears on. Everything shares one by default; a browser someone is
   // about to take over gets its own, so no account is ever shown another account's pages.
   const env = options.display ? { env: { ...process.env, DISPLAY: options.display } } : {};
@@ -158,6 +170,51 @@ export async function openBrowser(
     close: () => browser.close(),
     setCookies: async (cookies: unknown[]) => {
       await context.addCookies(cookies as Parameters<typeof context.addCookies>[0]);
+    },
+    userAgent: async () => page.evaluate(() => navigator.userAgent),
+  };
+}
+
+/**
+ * A browser somebody else is keeping alive, joined for the length of one run.
+ *
+ * Its own tab, closed at the end; the browser itself is left exactly as it was found. That asymmetry
+ * is the whole point — `close()` here means "I am done", not "shut it down", and a caller cannot tell
+ * the difference except that the next run is not challenged.
+ */
+async function connectThrough(host: string, profileDir: string, proxy?: ProxySettings): Promise<BrowserSession | undefined> {
+  const asked = await fetch(new URL('/open', host), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ profileDir, ...(proxy ? { proxy } : {}) }),
+  }).catch(() => undefined);
+  if (!asked?.ok) return undefined;
+
+  const { port } = (await asked.json()) as { port?: number };
+  if (!port) return undefined;
+
+  const browser = await chromium.connectOverCDP(`http://${new URL(host).hostname}:${port}`).catch(() => undefined);
+  const context = browser?.contexts()[0];
+  if (!browser || !context) return undefined;
+
+  const page = await context.newPage();
+  return {
+    page: new PatchrightPage(page),
+    close: async () => {
+      await page.close().catch(() => undefined);
+      await browser.close().catch(() => undefined); // disconnects; the browser is not ours to end
+    },
+    live: () => liveControl(context, page),
+    setCookies: async (cookies: unknown[]) => {
+      await context.addCookies(cookies as Parameters<typeof context.addCookies>[0]);
+    },
+    forgetSite: async (site: string) => {
+      const all = await context.cookies();
+      const bare = site.replace(/^www\./, '');
+      const keep = all.filter((cookie) => !cookie.domain.replace(/^\./, '').endsWith(bare));
+      await context.clearCookies();
+      if (keep.length) await context.addCookies(keep);
+      return all.length - keep.length;
     },
     userAgent: async () => page.evaluate(() => navigator.userAgent),
   };

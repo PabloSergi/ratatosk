@@ -86,8 +86,15 @@ lines never contain keys, passwords or session strings — there is a test that 
 
 ```bash
 git pull
-docker compose build web && docker compose up -d web
+docker compose build web worker && docker compose up -d web worker
 ```
+
+Note which services that names. **The `browser` service is deliberately not among them.** The browsers
+live in a container of their own precisely so that shipping code does not restart them: a challenge a
+person passed by hand leaves part of its answer inside the running browser, not in the cookie jar, and
+restarting the browser throws that part away. Rebuild `browser` when the image it runs actually needs
+to change — after a Chromium upgrade, say — and expect the next run on a guarded site to meet a check
+again.
 
 Scrapers, run history, accounts and browser profiles live in volumes and folders next to the compose
 file, so they survive the rebuild. What is worth backing up is small and boring:

@@ -363,13 +363,18 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     });
 
     return {
-      // The tab itself, watched and pressed by coordinates. The desktop over VNC stays available for
-      // the rare case where the whole browser window is what someone needs.
+      // The tab itself, watched and pressed by coordinates. A desktop over VNC as well, but only when
+      // this process owns the screen: a browser kept in a container of its own has no screen here, and
+      // offering a link to one would be offering a door that opens on nothing.
       view: `/live/${takeover.token}`,
-      desktop:
-        `/vnc/${takeover.token}/vnc.html?path=${encodeURIComponent(`vnc/${takeover.token}/websockify`)}` +
-        `&autoconnect=1&resize=scale&quality=4&compression=6&reconnect=1`,
-      vncPort: takeover.vncPort,
+      ...(takeover.webPort
+        ? {
+            desktop:
+              `/vnc/${takeover.token}/vnc.html?path=${encodeURIComponent(`vnc/${takeover.token}/websockify`)}` +
+              `&autoconnect=1&resize=scale&quality=4&compression=6&reconnect=1`,
+            vncPort: takeover.vncPort,
+          }
+        : {}),
       url: takeover.url,
       expiresAt: new Date(takeover.expiresAt).toISOString(),
     };
@@ -1361,7 +1366,9 @@ const server = createServer((request: IncomingMessage, response: ServerResponse)
   if (url.pathname.startsWith('/vnc/')) {
     const [, , token, ...rest] = url.pathname.split('/');
     const takeover = token ? findTakeover(token) : undefined;
-    if (!takeover) {
+    if (!takeover?.webPort) {
+      // No screen of our own to show: with the browsers kept in a container of their own, the way in
+      // is the tab itself at /live/<token>, and there is no desktop behind this address.
       response.writeHead(404, { 'content-type': 'text/plain' }).end('that session is over');
       return;
     }
@@ -1450,12 +1457,13 @@ server.on('upgrade', (request, socket, head) => {
   const path = request.url ?? '/';
   const [, , token, ...rest] = path.split('?')[0]!.split('/');
   const takeover = token ? findTakeover(token) : undefined;
-  if (!path.startsWith('/vnc/') || !takeover) {
+  if (!path.startsWith('/vnc/') || !takeover?.webPort) {
     socket.destroy();
     return;
   }
+  const webPort = takeover.webPort;
 
-  const upstream = connect({ host: '127.0.0.1', port: takeover.webPort }, () => {
+  const upstream = connect({ host: '127.0.0.1', port: webPort }, () => {
     const query = path.includes('?') ? `?${path.split('?')[1]}` : '';
     const headers = Object.entries(request.headers)
       .map(([name, value]) => `${name}: ${Array.isArray(value) ? value.join(', ') : value}\r\n`)

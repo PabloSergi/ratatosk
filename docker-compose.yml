@@ -57,6 +57,9 @@ services:
       # One browser per account, capped: a headed Chromium is not free.
       RATATOSK_MAX_BROWSERS: ${RATATOSK_MAX_BROWSERS:-3}
       RATATOSK_PROFILES: /app/profiles
+      # Where the browsers live. Unset it and each process starts its own, which is right for a laptop
+      # and wrong for a deploy: see the browser service above.
+      RATATOSK_BROWSER_HOST: http://browser:5546
       RATATOSK_HISTORY: /app/history
       RATATOSK_MEMORY: /app/memory
       RATATOSK_RESULTS: /app/results
@@ -91,6 +94,33 @@ services:
     memswap_limit: 5g
     shm_size: 1g
 
+  # The browsers themselves, kept out of the way of deploys.
+  #
+  # A site decides about a visitor with more than a cookie: a challenge passed by a person leaves the
+  # rest of its answer inside the running browser. Keep the browser in the container that holds the
+  # code and every deploy throws that answer away — which is how a scraper that worked yesterday spends
+  # today asking a human to prove itself again. So the browsers live here, and this is the one service
+  # that is built once and left alone; web and worker connect to it and let go.
+  browser:
+    build: .
+    image: ratatosk:local
+    container_name: ratatosk-browser
+    restart: unless-stopped
+    command: ["node", "dist/browser-host.js"]
+    environment:
+      HOST: 0.0.0.0
+      RATATOSK_BROWSER_HOST_PORT: 5546
+      RATATOSK_LOG: ${RATATOSK_LOG:-info}
+    volumes:
+      # The same profiles the rest of the system names: a profile directory is the identity, and both
+      # sides of the connection have to mean the same folder by it.
+      - browser-profiles:/app/profiles
+      - account-secrets:/app/secrets
+    # Several browsers at once, each with a page or two open. This is the container that needs room.
+    mem_limit: 6g
+    memswap_limit: 6g
+    shm_size: 2g
+
   # What runs what is due. Its own container, because a run holds a browser open for a minute at a
   # gigabyte a time: sharing a process with the thing serving the screen means one heavy scrape makes
   # the interface stop answering, and nobody can tell a busy scraper from a dead service.
@@ -113,6 +143,7 @@ services:
       # One browser at a time here: this container exists to be steady, not fast.
       RATATOSK_MAX_BROWSERS: ${RATATOSK_WORKER_BROWSERS:-1}
       RATATOSK_PROFILES: /app/profiles
+      RATATOSK_BROWSER_HOST: http://browser:5546
       RATATOSK_HISTORY: /app/history
       RATATOSK_MEMORY: /app/memory
       RATATOSK_RESULTS: /app/results

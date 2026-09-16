@@ -747,8 +747,12 @@ async function openDoor(url: string, proxy: string | undefined, where: string, s
   el(where).innerHTML =
     `${badge('ok')} open in a new tab until ${escapeHtml(new Date(session.expiresAt).toLocaleTimeString())} — ` +
     `press straight on the picture, and finish with <b>Save and close</b> there: that is what writes the ` +
-    `profile. Need the whole desktop instead? ` +
-    `<a href="${escapeHtml(session.desktop)}" target="_blank" rel="noreferrer">open it over VNC</a>.`;
+    `profile.` +
+    // Only when there is one. With the browsers kept in a container of their own there is no desktop
+    // on this side to show, and the tab is the whole of it.
+    (session.desktop
+      ? ` Need the whole desktop instead? <a href="${escapeHtml(session.desktop)}" target="_blank" rel="noreferrer">open it over VNC</a>.`
+      : '');
 }
 
 el('takeoverOpen').addEventListener('click', async () => {

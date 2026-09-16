@@ -22,9 +22,10 @@ export interface Takeover {
   /** Random, unguessable, and part of the URL: the websocket cannot carry an Authorization header. */
   token: string;
   userId: string;
-  display: number;
-  vncPort: number;
-  webPort: number;
+  /** The screen, the viewer and the processes behind them — absent when the browser lives elsewhere. */
+  display?: number;
+  vncPort?: number;
+  webPort?: number;
   url: string;
   /** Whose door this is, when it was opened from a scraper's card. Runs when the session is saved. */
   scraper?: string;
@@ -59,10 +60,46 @@ export async function startTakeover(input: {
   // One person, one screen: a second one for the same account would fight the first over the profile.
   for (const existing of takeoversOf(input.userId)) await stopTakeover(existing.token);
 
+  const token = randomBytes(18).toString('base64url');
+
+  /**
+   * The browser kept by the host, when there is one.
+   *
+   * This is what makes a takeover worth the person's minute. A check passed in a browser that is then
+   * closed buys one run; passed in the browser the robot actually uses, and which outlives every
+   * deploy, it buys every run after it. A tab is opened in that browser and closed at the end — the
+   * browser itself is never ours to shut down.
+   */
+  if (process.env['RATATOSK_BROWSER_HOST']) {
+    const session = await openBrowser({
+      profileDir: input.profileDir,
+      ...(input.proxy ? { proxy: input.proxy } : {}),
+    });
+    try {
+      await session.page.goto(input.url);
+    } catch {
+      // A page that will not load is exactly what someone may be taking over to deal with.
+    }
+
+    const takeover: Takeover = {
+      token,
+      userId: input.userId,
+      url: input.url,
+      ...(input.scraper ? { scraper: input.scraper } : {}),
+      startedAt: Date.now(),
+      expiresAt: Date.now() + LIFETIME_MS,
+      session,
+      processes: [],
+    };
+    if (session.live) rememberLive(token, await session.live());
+    sessions.set(token, takeover);
+    setTimeout(() => void stopTakeover(token), LIFETIME_MS).unref();
+    return takeover;
+  }
+
   const display = 100 + Math.floor(Math.random() * 400);
   const vncPort = 5900 + (display - 100);
   const webPort = 6900 + (display - 100);
-  const token = randomBytes(18).toString('base64url');
   const processes: ChildProcess[] = [];
 
   // A smaller screen at sixteen bits is a third of the pixels to push, and nobody is watching a film.

@@ -42,10 +42,23 @@ and takes back coordinates:
 - **Backpressure decides the rate.** While the socket is still swallowing the last frame, the next ones
   are skipped, so a slow link gets fewer *current* frames instead of a growing queue of stale ones.
 
-The whole desktop is still available for the rare case where the browser window itself is what you
-need — **Xvfb** gives each session its own screen (several accounts run browsers in one container, and
-a shared display would show each of them the others' pages), **x11vnc** makes it readable on loopback
-only, and **websockify + noVNC** put it in a tab. That path is the fallback, not the default.
+## Which browser you are given
+
+The one the scraper uses, and — where the deployment keeps its browsers in a container of their own
+(`RATATOSK_BROWSER_HOST`, see `docs/deploy.md`) — the very browser process it will still be using next
+week. That is what makes the minute you spend worth spending: a check passed in a browser that is then
+closed buys one run, and a check passed in a browser that outlives every deploy buys all of them. Your
+session opens a tab there and closes that tab; the browser is never shut down for you.
+
+Without that setting each process starts its own browser, which is right on a laptop and costs a pass
+per deploy on a server.
+
+The whole desktop is available in that second case, for the rare occasion when the browser window
+itself is what you need — **Xvfb** gives each session its own screen (several accounts run browsers in
+one container, and a shared display would show each of them the others' pages), **x11vnc** makes it
+readable on loopback only, and **websockify + noVNC** put it in a tab. That path is the fallback, not
+the default, and it is not offered at all when the browser lives elsewhere: there is no screen on this
+side to show.
 
 The way in is the Ratatosk server itself, at `/vnc/<token>/`. The token is eighteen random bytes,
 handed to the account that started the session and to nobody else — a websocket cannot carry an
