@@ -54,6 +54,8 @@ export async function startTakeover(input: {
   scraper?: string;
   profileDir: string;
   proxy?: { server: string; username?: string; password?: string };
+  /** The same way out as it was configured — for a browser kept in a container of its own. */
+  proxyUrl?: string;
 }): Promise<Takeover> {
   if (!/^https?:\/\//.test(input.url)) throw new InputError('a takeover needs an http(s) address');
 
@@ -73,7 +75,7 @@ export async function startTakeover(input: {
   if (process.env['RATATOSK_BROWSER_HOST']) {
     const session = await openBrowser({
       profileDir: input.profileDir,
-      ...(input.proxy ? { proxy: input.proxy } : {}),
+      ...(input.proxyUrl ? { proxyUrl: input.proxyUrl } : {}),
     });
     try {
       await session.page.goto(input.url);

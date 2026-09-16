@@ -67,7 +67,17 @@ export interface ProxySettings {
 }
 
 export async function openBrowser(
-  options: { headless?: boolean; profileDir?: string; proxy?: ProxySettings; display?: string } = {},
+  options: {
+    headless?: boolean;
+    profileDir?: string;
+    proxy?: ProxySettings;
+    /**
+     * The way out as it was configured, credentials and all — for a browser started by somebody else.
+     * A proxy that needs a bridge needs it raised beside the browser, and that is not this process.
+     */
+    proxyUrl?: string;
+    display?: string;
+  } = {},
 ): Promise<BrowserSession> {
   const headed = process.env['RATATOSK_HEADED'] === '1';
   const headless = options.headless ?? !headed;
@@ -78,7 +88,7 @@ export async function openBrowser(
   // the code is.
   const host = process.env['RATATOSK_BROWSER_HOST'];
   if (host && profileDir) {
-    const connected = await connectThrough(host, profileDir, options.proxy);
+    const connected = await connectThrough(host, profileDir, options.proxyUrl);
     if (connected) return connected;
     // Saying so and carrying on: a scrape from a browser of our own is worth more than a failed run,
     // and the reason must be in the log rather than in somebody's afternoon.
@@ -182,11 +192,11 @@ export async function openBrowser(
  * is the whole point — `close()` here means "I am done", not "shut it down", and a caller cannot tell
  * the difference except that the next run is not challenged.
  */
-async function connectThrough(host: string, profileDir: string, proxy?: ProxySettings): Promise<BrowserSession | undefined> {
+async function connectThrough(host: string, profileDir: string, proxyUrl?: string): Promise<BrowserSession | undefined> {
   const asked = await fetch(new URL('/open', host), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ profileDir, ...(proxy ? { proxy } : {}) }),
+    body: JSON.stringify({ profileDir, ...(proxyUrl ? { proxyUrl } : {}) }),
   }).catch(() => undefined);
   if (!asked?.ok) return undefined;
 

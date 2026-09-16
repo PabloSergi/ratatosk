@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { chromium, type BrowserContext } from 'patchright';
 
 import { debug, info } from './log.js';
+import { toRunningBrowserUrl } from './proxies.js';
 
 /**
  * The browsers, kept where deploys cannot reach them.
@@ -45,7 +46,11 @@ function freePort(): number {
  * Headed under Xvfb, like everywhere else in this product: headless is the tell that turns a page
  * into a challenge. The remote debugging port is what the rest of the system connects to.
  */
-async function browserFor(profileDir: string, proxy?: { server: string; username?: string; password?: string }): Promise<Running> {
+async function browserFor(profileDir: string, proxyUrl?: string): Promise<Running> {
+  // The way out, made dialable HERE. A SOCKS5 proxy with a password needs a bridge, and a bridge is a
+  // listener on loopback — which is this container's loopback, not the caller's. So what arrives is
+  // the proxy as configured, and it is turned into settings on this side of the wire.
+  const proxy = proxyUrl ? await toRunningBrowserUrl(proxyUrl) : undefined;
   const already = running.get(profileDir);
   if (already) {
     // A browser that died on its own — a crash, an out-of-memory — must not be handed out as if it
@@ -79,9 +84,9 @@ async function browserFor(profileDir: string, proxy?: { server: string; username
     debug('browser host: cleared the locks of a profile', { profileDir, why: (error as Error).message.split('\n')[0] });
   }
 
-  const started: Running = { context, port, since: Date.now(), ...(proxy ? { proxy: proxy.server } : {}) };
+  const started: Running = { context, port, since: Date.now(), ...(proxyUrl ? { proxy: hostOf(proxyUrl) } : {}) };
   running.set(profileDir, started);
-  info('browser host: a browser is up', { profileDir, port, proxy: proxy?.server ?? 'direct' });
+  info('browser host: a browser is up', { profileDir, port, proxy: proxyUrl ? hostOf(proxyUrl) : 'direct' });
   return started;
 }
 
@@ -92,6 +97,15 @@ async function stop(profileDir: string): Promise<boolean> {
   await one.context.close().catch(() => undefined);
   info('browser host: a browser was closed', { profileDir });
   return true;
+}
+
+/** The proxy in the log and in the listing: which one it is, never how to use it. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return 'a proxy';
+  }
 }
 
 function collect(request: IncomingMessage): Promise<Record<string, unknown>> {
@@ -137,8 +151,7 @@ const server = createServer((request: IncomingMessage, response: ServerResponse)
         const profileDir = String(body['profileDir'] ?? '');
         if (!profileDir) return answer(400, { error: 'a browser is asked for by its profile' });
         try {
-          const proxy = body['proxy'] as { server: string; username?: string; password?: string } | undefined;
-          const one = await browserFor(profileDir, proxy);
+          const one = await browserFor(profileDir, body['proxyUrl'] ? String(body['proxyUrl']) : undefined);
           answer(200, { port: one.port, since: new Date(one.since).toISOString() });
         } catch (error) {
           answer(500, { error: (error as Error).message.split('\n')[0] });

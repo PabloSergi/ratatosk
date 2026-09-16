@@ -117,11 +117,28 @@ export function toBrowser(proxy: Proxy): ProxySettings {
  * through, as before.
  */
 export async function toRunningBrowser(proxy: Proxy): Promise<ProxySettings> {
-  const parsed = parse(proxy.url);
-  if (parsed.scheme !== 'socks5' || !parsed.username) return toBrowser(proxy);
+  return toRunningBrowserUrl(proxy.url);
+}
+
+/**
+ * The same from the address alone.
+ *
+ * Which matters because the bridge is a local listener, and "local" is a different machine depending
+ * on who starts the browser. When the browsers live in a container of their own, the bridge has to be
+ * raised beside them — so what travels between the two is the proxy as configured, and each side turns
+ * it into something its own Chromium can dial.
+ */
+export async function toRunningBrowserUrl(url: string): Promise<ProxySettings> {
+  const parsed = parse(url);
+  const plain = (): ProxySettings => ({
+    server: `${parsed.scheme}://${parsed.host}`,
+    ...(parsed.username ? { username: parsed.username } : {}),
+    ...(parsed.password ? { password: parsed.password } : {}),
+  });
+  if (parsed.scheme !== 'socks5' || !parsed.username) return plain();
 
   const colon = parsed.host.lastIndexOf(':');
-  const bridge = await sharedBridge(proxy.url, {
+  const bridge = await sharedBridge(url, {
     host: parsed.host.slice(0, colon),
     port: Number(parsed.host.slice(colon + 1)),
     username: parsed.username,

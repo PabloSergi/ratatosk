@@ -44,7 +44,12 @@ export function makePool(): BrowserPool {
     open: async (profileDir, key) => {
       const [userId, proxyId] = key.split('|');
       const proxy = proxyId ? await findProxy(proxiesFileFor(userId!), proxyId) : undefined;
-      return openBrowser({ profileDir, ...(proxy ? { proxy: await toRunningBrowser(proxy) } : {}) });
+      return openBrowser({
+        profileDir,
+        // Both forms on purpose: the settings for a browser started here, the address for one started
+        // in a container of its own, which has to raise its own bridge. See proxies.ts.
+        ...(proxy ? { proxy: await toRunningBrowser(proxy), proxyUrl: proxy.url } : {}),
+      });
     },
     profileDir: (key) => join(process.env['RATATOSK_PROFILES'] ?? 'profiles', key.replace('|', '--')),
   });

@@ -359,7 +359,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
       url: String(body['url'] ?? ''),
       ...(body['scraper'] ? { scraper: String(body['scraper']) } : {}),
       profileDir: join(process.env['RATATOSK_PROFILES'] ?? 'profiles', key.replace('|', '--')),
-      ...(proxy ? { proxy: await toRunningBrowser(proxy) } : {}),
+      ...(proxy ? { proxy: await toRunningBrowser(proxy), proxyUrl: proxy.url } : {}),
     });
 
     return {
