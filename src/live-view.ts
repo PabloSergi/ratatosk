@@ -26,7 +26,10 @@ interface Stream {
   last?: Frame;
   seq: number;
   waiting: Set<(frame: Frame) => void>;
-  started: boolean;
+  /** A capture loop is running. One per session, however many people are looking at it. */
+  taking: boolean;
+  /** When a viewer last asked for a frame. Nobody asking means nothing worth photographing. */
+  askedAt: number;
 }
 
 const streams = new Map<string, Stream>();
@@ -48,7 +51,7 @@ export function liveStream(token: string): Stream | undefined {
 }
 
 export function rememberLive(token: string, control: LiveControl): void {
-  streams.set(token, { control, seq: 0, waiting: new Set(), started: false });
+  streams.set(token, { control, seq: 0, waiting: new Set(), taking: false, askedAt: Date.now() });
   liveLog('remembered', { token: token.slice(0, 6) });
 }
 
@@ -60,61 +63,54 @@ export async function forgetLive(token: string): Promise<void> {
   await stream.control.stop().catch(() => undefined);
 }
 
+/** Between pictures, while somebody is looking. Three a second is a usable page and a quiet machine. */
+const PACE_MS = Number(process.env['RATATOSK_FRAME_PACE_MS'] ?? 350);
+
 /**
- * The next frame after the one the viewer already has.
+ * Pictures, taken one after another for as long as somebody is looking.
  *
- * The screencast is started by the first request and then runs for everyone: frames are produced only
- * when the page actually repaints, so a still page costs nothing and a busy one costs what it must.
+ * Not a screencast. Chromium streams what the page's own process paints, and anything from another
+ * site is painted by another process — a security check inside a login page comes through as a white
+ * rectangle, which is precisely the page a person is taken to this view to deal with. A screenshot
+ * carries the whole tab, so the picture is taken rather than received, and the cost is bounded by
+ * asking for one only while a viewer is waiting for it.
  */
+async function keepTaking(token: string): Promise<void> {
+  const stream = streams.get(token);
+  if (!stream || stream.taking) return;
+  stream.taking = true;
+  liveLog('taking pictures', { token: token.slice(0, 6) });
+  try {
+    while (streams.get(token) === stream && Date.now() - stream.askedAt < HOLD_MS * 2) {
+      const shot = await stream.control.still().catch((error) => {
+        liveLog('taking a picture failed', { why: String(error).slice(0, 120) });
+        return undefined;
+      });
+      // The same bytes are the same picture: a page nobody is touching costs one screenshot a beat and
+      // wakes nobody up, and the waiting request is answered the moment something actually changes.
+      if (shot && shot.data !== stream.last?.data) {
+        const next: Frame = { ...shot, seq: ++stream.seq };
+        stream.last = next;
+        for (const waiter of stream.waiting) waiter(next);
+        stream.waiting.clear();
+      }
+      await new Promise((resolve) => setTimeout(resolve, PACE_MS));
+    }
+  } finally {
+    stream.taking = false;
+    liveLog('stopped taking pictures', { token: token.slice(0, 6) });
+  }
+}
+
+/** The next frame after the one the viewer already has, waited for rather than polled over the wire. */
 export async function nextFrame(token: string, since: number): Promise<Frame | undefined> {
   const stream = streams.get(token);
   if (!stream) return undefined;
 
-  if (!stream.started) {
-    stream.started = true;
-    liveLog('starting the screencast', { token: token.slice(0, 6) });
-    const starting = stream.control.watch((frame) => {
-      liveLog('frame from the screencast', { bytes: frame.data.length, width: frame.width });
-      const next: Frame = { ...frame, seq: ++stream.seq };
-      stream.last = next;
-      for (const waiter of stream.waiting) waiter(next);
-      stream.waiting.clear();
-    });
-
-    // Starting a screencast talks to a browser, and a browser can be slow or stuck. Whatever it is
-    // doing, it must not hold this request open with no answer: the viewer would sit in front of
-    // "waiting for the first frame" with nothing to retry against. It asks again in a moment instead.
-    const gaveUp = Symbol('slow');
-    const raced = await Promise.race([
-      starting.then(() => undefined),
-      new Promise((resolve) => setTimeout(() => resolve(gaveUp), 4000)),
-    ]).catch(() => gaveUp);
-    starting.catch(() => {
-      stream.started = false; // it did not start after all; the next look tries again
-    });
-    liveLog(raced === gaveUp ? 'the screencast is slow to start' : 'the screencast started', {
-      haveFrame: Boolean(stream.last),
-    });
-    if (raced === gaveUp && !stream.last) return undefined;
-  }
+  stream.askedAt = Date.now();
+  void keepTaking(token);
 
   if (stream.last && stream.last.seq > since) return stream.last;
-
-  // Still nothing to show. Rather than hold the request open in front of a page that may simply never
-  // repaint, take a picture of it now — this is the difference between a viewer that works on any page
-  // and one that works only on pages that happen to be busy.
-  if (!stream.last) {
-    liveLog('nothing yet — taking a picture outright');
-    const shot = await stream.control.still().catch((error) => {
-      liveLog('taking a picture failed', { why: String(error).slice(0, 120) });
-      return undefined;
-    });
-    liveLog('picture taken', { got: Boolean(shot) });
-    if (shot) {
-      stream.last = { ...shot, seq: ++stream.seq };
-      return stream.last;
-    }
-  }
 
   return new Promise<Frame | undefined>((resolve) => {
     const waiter = (frame: Frame): void => {
@@ -123,7 +119,7 @@ export async function nextFrame(token: string, since: number): Promise<Frame | u
     };
     const timer = setTimeout(() => {
       stream.waiting.delete(waiter);
-      resolve(undefined); // nothing repainted; the viewer asks again
+      resolve(undefined); // nothing changed; the viewer asks again
     }, HOLD_MS);
     timer.unref?.();
     stream.waiting.add(waiter);

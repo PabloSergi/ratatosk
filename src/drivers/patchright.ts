@@ -18,9 +18,14 @@ import type { PageDriver } from '../driver.js';
  * you saw the thing, and the press lands there whatever the picture is doing.
  */
 export interface LiveControl {
-  /** Frames as base64 JPEG, with the size they were taken at. Returns when the stream is running. */
-  watch(onFrame: (frame: { data: string; width: number; height: number }) => void): Promise<void>;
-  /** One picture, taken now. A page that never repaints would otherwise never be seen at all. */
+  /**
+   * One picture of the tab, base64 JPEG, with the size it was taken at.
+   *
+   * Taken rather than streamed on purpose. Chromium's screencast sends what the page's own process
+   * paints, and a frame from another site is painted by another process: a security check inside a
+   * login page — the exact thing this view exists for — arrives as a white rectangle. Measured, not
+   * assumed: the same page gave a blank box in the screencast and the whole widget in a screenshot.
+   */
   still(): Promise<{ data: string; width: number; height: number } | undefined>;
   press(x: number, y: number): Promise<void>;
   /** A press held, moved and let go — a scrollbar thumb, a slider, anything drawn to be dragged. */
@@ -199,45 +204,10 @@ class PatchrightPage implements PageDriver {
  */
 async function liveControl(context: BrowserContext, page: Page): Promise<LiveControl> {
   const cdp = await context.newCDPSession(page);
-  let stopped = false;
 
   await cdp.send('Page.enable').catch(() => undefined);
 
   return {
-    watch: async (onFrame) => {
-      cdp.on('Page.screencastFrame', (frame: { data: string; sessionId: number; metadata: { deviceWidth: number; deviceHeight: number } }) => {
-        if (stopped) return;
-        onFrame({ data: frame.data, width: frame.metadata.deviceWidth, height: frame.metadata.deviceHeight });
-        // Chromium sends the next frame only once this one is acknowledged, which is also what keeps a
-        // slow watcher from being buried in frames it will never draw.
-        void cdp.send('Page.screencastFrameAck', { sessionId: frame.sessionId }).catch(() => undefined);
-      });
-      // The domain has to be switched on first: a session made this way listens to nothing by default,
-      // and startScreencast on a silent domain is a request that is answered by never sending a frame.
-      await cdp.send('Page.enable');
-      await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 42, maxWidth: 1200, maxHeight: 760, everyNthFrame: 1 });
-
-      // A screencast sends a frame when the page repaints, and a page that finished loading before
-      // anyone looked has nothing to repaint — the watcher then waits forever in front of a page that
-      // is perfectly fine. So the first picture is taken outright rather than waited for.
-      //
-      // Deliberately not awaited: taking a still can itself stall on a busy or hidden renderer, and
-      // nobody watching should be held up by the very thing meant to save them from waiting.
-      void (async () => {
-        const still = (await cdp.send('Page.captureScreenshot', { format: 'jpeg', quality: 42 })) as { data: string };
-        const metrics = (await cdp.send('Page.getLayoutMetrics')) as {
-          cssVisualViewport?: { clientWidth: number; clientHeight: number };
-        };
-        if (!stopped && still?.data) {
-          onFrame({
-            data: still.data,
-            width: Math.round(metrics.cssVisualViewport?.clientWidth ?? 1200),
-            height: Math.round(metrics.cssVisualViewport?.clientHeight ?? 760),
-          });
-        }
-      })().catch(() => undefined);
-    },
-
     still: async () => {
       const shot = (await cdp.send('Page.captureScreenshot', { format: 'jpeg', quality: 42 }).catch(() => undefined)) as
         | { data: string }
@@ -326,8 +296,6 @@ async function liveControl(context: BrowserContext, page: Page): Promise<LiveCon
     },
 
     stop: async () => {
-      stopped = true;
-      await cdp.send('Page.stopScreencast').catch(() => undefined);
       await cdp.detach().catch(() => undefined);
     },
   };
