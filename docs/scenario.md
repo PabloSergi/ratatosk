@@ -42,6 +42,9 @@ survive layout changes better than absolute paths. A field with no `selector` re
 Field types: `text` (whitespace collapsed), `attr` (with `absolute: true` to resolve a URL against the
 page), `html` (raw inner HTML). A field marked `optional` may be missing without counting as damage.
 
+`all: true` takes every match instead of the first, joined by newlines — a gallery of photographs, a
+row of tags. Without it a posting with twelve pictures quietly becomes a posting with one.
+
 A block where every field came back empty is dropped, and the number of blocks seen is reported — that
 gap between "blocks matched" and "rows produced" is how a run tells a rotted field selector from an
 empty site.

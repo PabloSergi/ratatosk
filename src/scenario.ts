@@ -61,10 +61,11 @@ export interface ListRule {
   fields: Record<string, FieldRule>;
 }
 
+/** `all` takes every match instead of the first, joined by newlines — a gallery, a list of tags. */
 export type FieldRule =
-  | { type: 'text'; selector?: string; optional?: boolean }
-  | { type: 'attr'; selector?: string; attr: string; absolute?: boolean; optional?: boolean }
-  | { type: 'html'; selector?: string; optional?: boolean };
+  | { type: 'text'; selector?: string; optional?: boolean; all?: boolean }
+  | { type: 'attr'; selector?: string; attr: string; absolute?: boolean; optional?: boolean; all?: boolean }
+  | { type: 'html'; selector?: string; optional?: boolean; all?: boolean };
 
 export interface SiftRule {
   keep: string[];

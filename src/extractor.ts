@@ -11,9 +11,7 @@
  */
 export const EXTRACTOR_SOURCE = `
 (list) => {
-  const pick = (root, rule) => {
-    const node = rule.selector ? root.querySelector(rule.selector) : root;
-    if (!node) return null;
+  const one = (node, rule) => {
     if (rule.type === 'attr') {
       const raw = node.getAttribute(rule.attr);
       if (raw === null) return null;
@@ -22,6 +20,23 @@ export const EXTRACTOR_SOURCE = `
     }
     if (rule.type === 'html') return node.innerHTML.trim();
     return (node.textContent || '').replace(/\\s+/g, ' ').trim();
+  };
+
+  const pick = (root, rule) => {
+    // Every match rather than the first: a gallery is one field with many pictures in it, and picking
+    // the first one silently turns a posting with twelve photographs into a posting with one.
+    if (rule.all) {
+      if (!rule.selector) return one(root, rule);
+      const found = [];
+      for (const node of Array.from(root.querySelectorAll(rule.selector))) {
+        const value = one(node, rule);
+        if (value) found.push(value);
+      }
+      return found.length ? found.join('\\n') : null;
+    }
+    const node = rule.selector ? root.querySelector(rule.selector) : root;
+    if (!node) return null;
+    return one(node, rule);
   };
 
   let blocks;
