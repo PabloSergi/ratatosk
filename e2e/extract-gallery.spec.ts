@@ -16,7 +16,8 @@ test('a field that asks for every match brings back every match', async () => {
       'data:text/html,' +
         encodeURIComponent(
           '<div class="card"><h2>A flat</h2>' +
-            '<img src="https://pictures.example/0.jpg"><img src="https://pictures.example/1.jpg"><img src="https://pictures.example/2.jpg">' +
+            '<img src="https://pictures.example/0.jpg"><img src="https://pictures.example/1.jpg">' +
+            '<img src="https://pictures.example/1.jpg"><img src="https://pictures.example/2.jpg">' +
             '</div>',
         ),
     );
@@ -31,6 +32,8 @@ test('a field that asks for every match brings back every match', async () => {
     });
 
     expect(got.rows[0]!['title']).toBe('A flat');
+    // The middle picture is on the page twice, the way a carousel repeats the frame beside the one
+    // being looked at. Two copies of one address are not two photographs.
     expect(got.rows[0]!['photos']!.split('\n')).toEqual([
       'https://pictures.example/0.jpg',
       'https://pictures.example/1.jpg',

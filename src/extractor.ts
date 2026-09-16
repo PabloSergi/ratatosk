@@ -30,7 +30,9 @@ export const EXTRACTOR_SOURCE = `
       const found = [];
       for (const node of Array.from(root.querySelectorAll(rule.selector))) {
         const value = one(node, rule);
-        if (value) found.push(value);
+        // The same picture is often drawn three times over — a carousel keeps the neighbours of the
+        // frame you are looking at. Three copies of one address is not three photographs.
+        if (value && found.indexOf(value) === -1) found.push(value);
       }
       return found.length ? found.join('\\n') : null;
     }
