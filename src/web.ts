@@ -166,9 +166,13 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
   '/api/history': async (body, user) => {
     const file = historyFileFor(user.id);
     const robot = body['robot'] ? String(body['robot']) : undefined;
+    // A scraper that was deleted is nobody's problem any more. Its runs stay in the journal — that is
+    // what a journal is for — but the line that says how many need looking at must count the ones that
+    // exist, or it asks for attention to something there is no longer a card for.
+    const alive = new Set((await listRobots(robotsDirFor(user.id))).map((entry) => entry.name));
     return {
       runs: await recent(file, { ...(robot ? { robot } : {}), limit: Number(body['limit'] ?? 60) || 60 }),
-      standing: await standing(file),
+      standing: (await standing(file)).filter((entry) => alive.has(entry.robot)),
     };
   },
 

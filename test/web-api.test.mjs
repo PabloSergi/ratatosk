@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtemp } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, test } from 'vitest';
@@ -15,10 +15,11 @@ import { afterAll, beforeAll, test } from 'vitest';
  */
 let server;
 let base;
+let home;
 const spoken = [];
 
 beforeAll(async () => {
-  const home = await mkdtemp(join(tmpdir(), 'ratatosk-web-'));
+  home = await mkdtemp(join(tmpdir(), 'ratatosk-web-'));
   const port = 5600 + Math.floor(process.pid % 300);
   base = `http://127.0.0.1:${port}`;
 
@@ -556,4 +557,25 @@ test('the rule endpoints are closed to strangers', async () => {
     const response = await call(path, { name: 'x' }, { token: null });
     assert.equal(response.status, 401, `${path} must need an account`);
   }
+});
+
+test('a scraper that was deleted stops being counted as one that needs looking at', async () => {
+  await call('/api/telegram/robot', { channels: '@standing', limit: 10 });
+  const me = await call('/api/auth/me', {});
+
+  // Two broken runs in the journal: one belongs to a scraper that exists, the other to one that was
+  // deleted a month ago. The journal keeps both; the tally may only speak of the first.
+  const journal = join(home, 'history', `${me.body.user.id}.jsonl`);
+  await mkdir(join(home, 'history'), { recursive: true });
+  for (const robot of ['standing', 'long-gone']) {
+    await appendFile(
+      journal,
+      `${JSON.stringify({ at: new Date().toISOString(), robot, kind: 'run', status: 'broken', rows: 0, pages: 0, ms: 1 })}\n`,
+    );
+  }
+
+  const { body } = await call('/api/history', {});
+  const named = body.standing.map((entry) => entry.robot);
+  assert.ok(named.includes('standing'), 'a scraper that exists is still judged');
+  assert.ok(!named.includes('long-gone'), 'and one that does not is not asked about');
 });
