@@ -205,7 +205,14 @@ async function connectThrough(host: string, profileDir: string, proxyUrl?: strin
   const { port } = (await asked.json()) as { port?: number };
   if (!port) return undefined;
 
-  const browser = await chromium.connectOverCDP(`http://${new URL(host).hostname}:${port}`).catch(() => undefined);
+  const where = `http://${new URL(host).hostname}:${port}`;
+  // Twice, a moment apart: a browser that has only just been started is a browser whose port is only
+  // just listening, and giving up on the first refusal means starting a second browser for nothing.
+  let browser = await chromium.connectOverCDP(where).catch(() => undefined);
+  if (!browser) {
+    await new Promise((settle) => setTimeout(settle, 500));
+    browser = await chromium.connectOverCDP(where).catch(() => undefined);
+  }
   const context = browser?.contexts()[0];
   if (!browser || !context) return undefined;
 

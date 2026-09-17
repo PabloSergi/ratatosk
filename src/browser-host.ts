@@ -56,7 +56,7 @@ function freePort(): number {
  *
  * Nothing is published beyond the compose network, so what this opens is a door in an inside wall.
  */
-function relayTo(debugPort: number, on: number): TcpServer {
+async function relayTo(debugPort: number, on: number): Promise<TcpServer> {
   const relay = createRelay((incoming) => {
     const upstream = connect({ host: '127.0.0.1', port: debugPort }, () => {
       incoming.pipe(upstream).pipe(incoming);
@@ -64,7 +64,10 @@ function relayTo(debugPort: number, on: number): TcpServer {
     upstream.on('error', () => incoming.destroy());
     incoming.on('error', () => upstream.destroy());
   });
-  relay.listen(on, '0.0.0.0');
+  // Waited for, not fired off. Answering "here is the port" before the port is listening is a race
+  // that the caller loses by thirty milliseconds and reads as "the host has no browser for me" —
+  // which sends it off to start one of its own, silently, every single time.
+  await new Promise<void>((listening) => relay.listen(on, '0.0.0.0', listening));
   return relay;
 }
 
@@ -120,7 +123,7 @@ async function browserFor(profileDir: string, proxyUrl?: string): Promise<Runnin
   const started: Running = {
     context,
     port,
-    relay: relayTo(debugPort, port),
+    relay: await relayTo(debugPort, port),
     since: Date.now(),
     ...(proxyUrl ? { proxy: hostOf(proxyUrl) } : {}),
   };
