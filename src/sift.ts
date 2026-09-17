@@ -89,6 +89,23 @@ function textOf(row: Row, from?: string): string {
     .join('  ');
 }
 
+/**
+ * The fields a rule reads out of a row's text, without deciding anything about the row.
+ *
+ * Separate because the identity of a row can live in one of them — an id cut out of a link — and
+ * whoever needs that identity before the sift has run (to know whether the row is worth opening at
+ * all) must read it the same way, or the two will disagree about what a row is.
+ */
+export function fieldsOf(row: Row, rule: Sift): Row {
+  const found: Row = {};
+  for (const [name, field] of Object.entries(rule.fields ?? {})) {
+    const pattern = compile([field.pattern])[0]!;
+    const match = pattern.exec(textOf(row, field.from ?? rule.from));
+    found[name] = match ? (match[1] ?? match[0]).trim() : null;
+  }
+  return found;
+}
+
 export function sift(rows: Row[], rule: Sift): SiftResult {
   const keep = compile(rule.keep ?? []);
   const drop = compile(rule.drop ?? []);

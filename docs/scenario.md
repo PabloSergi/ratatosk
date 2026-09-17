@@ -171,6 +171,19 @@ name the column yourself:
 
 which is per-message identity, said out loud. `by` is obeyed everywhere and overrules all of the above.
 
+### What is not opened twice
+
+A scenario with both `detail` and `remember` does not open a page for a row it has already handed over.
+The first pass pays for every row; the ones after it pay only for what is new, which on a list read
+every few hours is the few at the top. The run says how many it spared, so a pass that suddenly opens
+everything is visible rather than merely slow.
+
+The identity used for that decision is the same one the memory uses afterwards, columns cut out by
+`sift` included — otherwise the walk and the memory would disagree about what a row is, and the answer
+would be to open everything or nothing.
+
+`mode: "all"` turns this off by itself: a run that hands over repeats has to hand them over whole.
+
 ## `catalogue`
 
 ```json

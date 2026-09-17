@@ -2,8 +2,8 @@ import type { PageDriver } from './driver.js';
 import type { Robot } from './robots.js';
 import type { SiteRule } from './rules.js';
 import { runScenario, type RunResult } from './run.js';
-import { identityOfMessage, meet, type Remember, type Row, type Seen } from './memory.js';
-import { judgeLeftovers, judgeSift, sift, type Sift } from './sift.js';
+import { identity, identityOfMessage, meet, type Remember, type Row, type Seen } from './memory.js';
+import { fieldsOf, judgeLeftovers, judgeSift, sift, type Sift } from './sift.js';
 import { isTelegramRobot, runTelegramRobot } from './telegram.js';
 import { asker, deepen, isApiRobot, runApiRobot, type AskJson } from './api.js';
 import { maskRow } from './mask.js';
@@ -128,7 +128,31 @@ export async function runRobot(
       ? { ...robot, pagination: { ...robot.pagination, maxPages: options.maxPages } }
       : robot;
 
-  const run = await runScenario(await options.page(), scenario, { rules: options.rules });
+  /**
+   * Which rows are worth a page of their own.
+   *
+   * The walk into rows costs one page load each, and a source read every couple of hours is mostly
+   * rows that were read last time. The feed reader above already works this way — deepen what is being
+   * handed on, not the whole board — and there is no reason a page walk should be the exception.
+   *
+   * The identity has to be read exactly as the memory will read it later, sift-made columns included:
+   * an id cut out of a link does not exist until the sift has run, and two different answers to "what
+   * is this row" would mean opening everything or nothing.
+   */
+  const known = options.memory?.seen;
+  const worthOpening =
+    robot.detail && robot.remember && robot.remember.mode !== 'all' && known
+      ? (row: Record<string, string | null>): boolean => {
+          const whole = robot.sift ? { ...row, ...fieldsOf(row, robot.sift) } : row;
+          const key = identity(whole, robot.remember?.by);
+          return !key || !known[key];
+        }
+      : undefined;
+
+  const run = await runScenario(await options.page(), scenario, {
+    rules: options.rules,
+    ...(worthOpening ? { worthOpening } : {}),
+  });
   // A run that did not come back with rows has nothing to sift and nothing to remember. Sifting and
   // remembering are separate things, though: a robot may do either, both, or neither.
   if (run.status !== 'ok' || (!robot.sift && !robot.remember)) return run;
@@ -140,7 +164,10 @@ export async function runRobot(
 
   await options.saw?.(sifted.rows);
   const seen = await remember(sifted.rows, robot.remember, options.memory);
-  const reason = [sifted.note, seen.note].filter(Boolean).join('; ');
+  const spared = run.evidence?.rowsKnownAlready;
+  const reason = [sifted.note, seen.note, spared ? `${spared} already read were not opened again` : undefined]
+    .filter(Boolean)
+    .join('; ');
   if (seen.rows.length === 0 && seen.note) {
     // The same quiet day on a page walk: rows were found, and every one of them had been handed over.
     return { ...run, status: 'empty', quiet: true, rows: [], reason };

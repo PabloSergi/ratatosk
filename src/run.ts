@@ -35,6 +35,8 @@ export interface RunResult {
     missingFields: Record<string, number>;
     url: string;
     rowsOpened?: number;
+    /** Rows not opened because they had been read before. See RunOptions.worthOpening. */
+    rowsKnownAlready?: number;
     /** Rows this run collected twice and handed over once. */
     duplicates?: number;
   };
@@ -44,6 +46,15 @@ export interface RunResult {
 
 export interface RunOptions {
   rules?: SiteRule[];
+  /**
+   * Whether a row is worth a page load of its own.
+   *
+   * A walk into rows is the expensive half of a scrape — one page per row — and on a source that is
+   * read every couple of hours most rows were already read last time. What decides that is the
+   * memory, which lives a layer up; this is how the layer up says so, and a scraper without one opens
+   * everything exactly as before.
+   */
+  worthOpening?: (row: Record<string, string | null>) => boolean;
 }
 
 export async function runScenario(page: PageDriver, scenario: Scenario, options: RunOptions = {}): Promise<RunResult> {
@@ -161,9 +172,12 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
 
   // The list is done. What it could not carry — pay, contacts, the whole text — is one page deeper.
   let visited = 0;
+  let knownAlready = 0;
   if (scenario.detail && rows.length > 0) {
     try {
-      visited = await walkIntoRows(page, scenario, rows, options.rules ?? [], rulesApplied);
+      const walked = await walkIntoRows(page, scenario, rows, options.rules ?? [], rulesApplied, options.worthOpening);
+      visited = walked.opened;
+      knownAlready = walked.skipped;
     } catch (error) {
       paginationStopped = paginationStopped ?? `the walk into rows stopped: ${firstLine(error)}`;
     }
@@ -174,6 +188,7 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
     missingFields: lastExtract.missing,
     url: await page.currentUrl(),
     ...(scenario.detail ? { rowsOpened: visited } : {}),
+    ...(knownAlready ? { rowsKnownAlready: knownAlready } : {}),
     // Said out loud rather than quietly dropped: a walk that keeps handing back the same rows is a
     // pager going nowhere, and the count is how you notice.
     ...(duplicates > 0 ? { duplicates } : {}),
@@ -259,14 +274,24 @@ async function walkIntoRows(
   rows: Array<Record<string, string | null>>,
   rules: SiteRule[],
   rulesApplied: string[],
-): Promise<number> {
+  worthOpening?: (row: Record<string, string | null>) => boolean,
+): Promise<{ opened: number; skipped: number }> {
   const detail = scenario.detail!;
   const seen = new Map<string, Record<string, string | null>>();
   let opened = 0;
+  let skipped = 0;
 
   for (const row of rows) {
     const where = row[detail.follow];
     if (!where || !/^https?:\/\//.test(where)) continue;
+
+    // A row that has been handed over before is not read again. The budget below is then spent on the
+    // rows that are actually new, which on a list read every few hours is the few at the top — the
+    // difference between a pass that costs twelve minutes and one that costs one.
+    if (worthOpening && !worthOpening(row)) {
+      skipped += 1;
+      continue;
+    }
 
     const already = seen.get(where);
     if (already) {
@@ -293,7 +318,7 @@ async function walkIntoRows(
     opened++;
   }
 
-  return opened;
+  return { opened, skipped };
 }
 
 export async function scrapeCurrentPage(page: PageDriver, scenario: Scenario): Promise<ExtractResult> {
