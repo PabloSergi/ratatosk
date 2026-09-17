@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer as createRelay, connect, type Server as TcpServer } from 'node:net';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -26,18 +27,45 @@ import { toRunningBrowserUrl } from './proxies.js';
  */
 interface Running {
   context: BrowserContext;
+  /** What the callers dial. See relayTo: it is not the browser's own port, and it cannot be. */
   port: number;
+  relay: TcpServer;
   since: number;
   proxy?: string;
 }
 
 const running = new Map<string, Running>();
 const FIRST_PORT = Number(process.env['RATATOSK_BROWSER_PORT_FROM'] ?? 9222);
+/** The browser's own ports and the ones handed out, kept apart so neither can wander into the other. */
+const RELAY_OFFSET = 100;
 
 function freePort(): number {
-  const taken = new Set([...running.values()].map((one) => one.port));
-  for (let port = FIRST_PORT; port < FIRST_PORT + 200; port += 1) if (!taken.has(port)) return port;
+  const taken = new Set([...running.values()].map((one) => one.port - RELAY_OFFSET));
+  for (let port = FIRST_PORT; port < FIRST_PORT + RELAY_OFFSET; port += 1) if (!taken.has(port)) return port;
   throw new Error('no port left for another browser');
+}
+
+/**
+ * A door onto the browser's debugging port, because the browser will not open one itself.
+ *
+ * Chromium binds that port to loopback and keeps it there — `--remote-debugging-address` is ignored,
+ * which is a defence against a page on the internet reaching the browser that is showing it. Loopback
+ * here is this container, and the callers are in the ones next door, so without this every one of them
+ * quietly started a browser of its own and this service sat looking healthy. Measured both ways: the
+ * port refused from outside, and answered through the relay.
+ *
+ * Nothing is published beyond the compose network, so what this opens is a door in an inside wall.
+ */
+function relayTo(debugPort: number, on: number): TcpServer {
+  const relay = createRelay((incoming) => {
+    const upstream = connect({ host: '127.0.0.1', port: debugPort }, () => {
+      incoming.pipe(upstream).pipe(incoming);
+    });
+    upstream.on('error', () => incoming.destroy());
+    incoming.on('error', () => upstream.destroy());
+  });
+  relay.listen(on, '0.0.0.0');
+  return relay;
 }
 
 /**
@@ -59,12 +87,17 @@ async function browserFor(profileDir: string, proxyUrl?: string): Promise<Runnin
     running.delete(profileDir);
   }
 
-  const port = freePort();
+  const debugPort = freePort();
+  const port = debugPort + RELAY_OFFSET;
   const launch = (): Promise<BrowserContext> =>
     chromium.launchPersistentContext(profileDir, {
       headless: false,
       viewport: null,
-      args: ['--no-sandbox', `--remote-debugging-port=${port}`, '--remote-allow-origins=*'],
+      args: [
+        '--no-sandbox',
+        `--remote-debugging-port=${debugPort}`,
+        '--remote-allow-origins=*',
+      ],
       env: { ...process.env, DISPLAY: process.env['DISPLAY'] ?? ':99' },
       ...(proxy ? { proxy } : {}),
     });
@@ -84,9 +117,15 @@ async function browserFor(profileDir: string, proxyUrl?: string): Promise<Runnin
     debug('browser host: cleared the locks of a profile', { profileDir, why: (error as Error).message.split('\n')[0] });
   }
 
-  const started: Running = { context, port, since: Date.now(), ...(proxyUrl ? { proxy: hostOf(proxyUrl) } : {}) };
+  const started: Running = {
+    context,
+    port,
+    relay: relayTo(debugPort, port),
+    since: Date.now(),
+    ...(proxyUrl ? { proxy: hostOf(proxyUrl) } : {}),
+  };
   running.set(profileDir, started);
-  info('browser host: a browser is up', { profileDir, port, proxy: proxyUrl ? hostOf(proxyUrl) : 'direct' });
+  info('browser host: a browser is up', { profileDir, port, debugPort, proxy: proxyUrl ? hostOf(proxyUrl) : 'direct' });
   return started;
 }
 
@@ -94,6 +133,7 @@ async function stop(profileDir: string): Promise<boolean> {
   const one = running.get(profileDir);
   if (!one) return false;
   running.delete(profileDir);
+  one.relay.close();
   await one.context.close().catch(() => undefined);
   info('browser host: a browser was closed', { profileDir });
   return true;

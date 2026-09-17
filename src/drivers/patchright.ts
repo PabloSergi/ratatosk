@@ -2,6 +2,7 @@ import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright';
 import type { PageDriver } from '../driver.js';
+import { warn } from '../log.js';
 
 /**
  * The only file that knows a real browser exists.
@@ -90,9 +91,10 @@ export async function openBrowser(
   if (host && profileDir) {
     const connected = await connectThrough(host, profileDir, options.proxyUrl);
     if (connected) return connected;
-    // Saying so and carrying on: a scrape from a browser of our own is worth more than a failed run,
-    // and the reason must be in the log rather than in somebody's afternoon.
-    console.error(`browser host ${host} would not give a browser for ${profileDir}; starting one here instead`);
+    // Carrying on with a browser of our own, because a run is worth more than a principle — but said
+    // out loud in the journal, because a silent fallback is indistinguishable from the thing working,
+    // and what it costs is exactly what this service exists to keep.
+    warn('the browser host gave nothing; starting a browser in this container instead', { host, profileDir });
   }
   // Which screen this browser appears on. Everything shares one by default; a browser someone is
   // about to take over gets its own, so no account is ever shown another account's pages.

@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { networkInterfaces, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { expect, test } from '@playwright/test';
@@ -25,9 +25,9 @@ test('a run borrows the browser and gives it back still running', async () => {
   });
 
   const where = `http://127.0.0.1:${PORT}`;
-  const browsers = async (): Promise<Array<{ profileDir: string; since: string; pages: number }>> =>
-    ((await (await fetch(`${where}/browsers`)).json()) as { browsers: Array<{ profileDir: string; since: string; pages: number }> })
-      .browsers;
+  type Listed = { profileDir: string; since: string; pages: number; port: number };
+  const browsers = async (): Promise<Listed[]> =>
+    ((await (await fetch(`${where}/browsers`)).json()) as { browsers: Listed[] }).browsers;
 
   try {
     for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -57,6 +57,20 @@ test('a run borrows the browser and gives it back still running', async () => {
     expect(await second.page.evaluate<string>('() => document.title')).toBe('two');
     expect((await browsers())[0]!.since).toBe(started.since);
     await second.close();
+
+    // The callers are in another container, and a debugging port on loopback is a port they cannot
+    // reach — which cost nothing visible: every run simply started a browser of its own and the
+    // service sat there looking healthy. So the port is checked from an address that is not loopback.
+    const outside = Object.values(networkInterfaces())
+      .flat()
+      .find((card) => card && card.family === 'IPv4' && !card.internal)?.address;
+    if (outside) {
+      const version = await fetch(`http://${outside}:${started.port}/json/version`).then(
+        (answer) => answer.ok,
+        () => false,
+      );
+      expect(version, 'the browser answers the devtools protocol from off the loopback').toBe(true);
+    }
 
     await fetch(`${where}/close`, {
       method: 'POST',
