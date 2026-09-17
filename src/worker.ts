@@ -1,7 +1,7 @@
 import { closeDb } from './db.js';
 import { makePool, runForAccount } from './do-run.js';
 import { log } from './log.js';
-import { closeQueue, enqueue, nextJob, releaseLock, takeLock, usingQueue, type Job } from './queue.js';
+import { closeQueue, enqueue, keepLock, nextJob, releaseLock, takeLock, usingQueue, type Job } from './queue.js';
 import { loadRules, type SiteRule } from './rules.js';
 import { claimDue } from './schedule.js';
 
@@ -56,6 +56,7 @@ async function work(rules: SiteRule[]): Promise<void> {
       continue;
     }
 
+    const holding = keepLock(job);
     try {
       const run = await runForAccount(job.userId, job.scraper, { pool, rules });
       log(run.status === 'ok' ? 'info' : 'warn', 'worker ran', {
@@ -70,6 +71,7 @@ async function work(rules: SiteRule[]): Promise<void> {
       // start: all of them are one scraper's problem and none of them is a reason to stop working.
       log('error', 'worker failed', { robot: job.scraper, user: job.userId, why: message(error) });
     } finally {
+      holding();
       await releaseLock(job);
     }
   }

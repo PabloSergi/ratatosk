@@ -53,3 +53,32 @@ when('two scrapers do not block each other', async () => {
   await releaseLock(job('one'));
   await releaseLock(job('two'));
 });
+
+when('waiting for a job does not stop the same process putting one in', async () => {
+  const { enqueue, nextJob } = await import('../src/queue.ts');
+  const one = job(`wedge-${Date.now()}`);
+
+  // The shape that wedged a live worker: wait first, put the job in second, from one process. With
+  // both sharing a connection the waiting holds the line and the enqueue never lands.
+  const waiting = nextJob(5);
+  await enqueue(one);
+
+  const taken = await waiting;
+  assert.equal(taken?.scraper, one.scraper, 'the job that was put in while somebody waited comes out');
+});
+
+when('a lock held longer than its own lifetime is still held', async () => {
+  const { takeLock, keepLock, releaseLock } = await import('../src/queue.ts');
+  const one = job(`long-${Date.now()}`);
+
+  assert.equal(await takeLock(one), true);
+  // Renewed every 200ms against a lock that is meant to die: what a long run does to its own right.
+  const holding = keepLock(one, 200);
+  await new Promise((waited) => setTimeout(waited, 700));
+  assert.equal(await takeLock(one), false, 'nobody else may take it while the holder is alive');
+
+  holding();
+  await releaseLock(one);
+  assert.equal(await takeLock(one), true, 'and it is free the moment the holder lets go');
+  await releaseLock(one);
+});
