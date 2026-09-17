@@ -1,3 +1,4 @@
+import { lookup } from 'node:dns/promises';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium, type Browser, type BrowserContext, type Page } from 'patchright';
@@ -205,7 +206,13 @@ async function connectThrough(host: string, profileDir: string, proxyUrl?: strin
   const { port } = (await asked.json()) as { port?: number };
   if (!port) return undefined;
 
-  const where = `http://${new URL(host).hostname}:${port}`;
+  // By address, not by name. Chromium answers its devtools port only when the Host header is an IP or
+  // localhost — a defence against a page talking a browser into opening itself up — and a container
+  // name is neither. Measured: the same request refused as "Host header is specified and is not an IP
+  // address or localhost" and accepted once the name was resolved.
+  const named = new URL(host).hostname;
+  const address = await lookup(named).then((found) => found.address, () => named);
+  const where = `http://${address}:${port}`;
   // Twice, a moment apart: a browser that has only just been started is a browser whose port is only
   // just listening, and giving up on the first refusal means starting a second browser for nothing.
   let browser = await chromium.connectOverCDP(where).catch(() => undefined);
