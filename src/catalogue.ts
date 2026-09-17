@@ -50,9 +50,21 @@ export async function keepSeen(
   identity: string,
   at = new Date().toISOString(),
 ): Promise<number> {
-  const seen = rows
-    .map((row) => ({ id: row[identity], row }))
-    .filter((one): one is { id: string; row: Row } => Boolean(one.id));
+  /**
+   * One line per row a pass saw — and one line per ROW, not per sighting.
+   *
+   * A list can show the same posting twice in one walk, and on a site that stamps its links with
+   * tracking the two sightings are not even the same string until the id is cut out of them. Postgres
+   * refuses a statement that updates one row twice ("cannot affect row a second time"), and refusing
+   * means the whole pass is lost at its last step — measured the expensive way: two and a half hours
+   * of walking thrown away on the final insert. The last sighting wins; they describe the same thing.
+   */
+  const byId = new Map<string, Row>();
+  for (const row of rows) {
+    const id = row[identity];
+    if (id) byId.set(id, row);
+  }
+  const seen = [...byId.entries()].map(([id, row]) => ({ id, row }));
   if (seen.length === 0) return 0;
 
   if (usingDatabase()) {
