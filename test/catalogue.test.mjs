@@ -106,3 +106,18 @@ test('the boundary for what is gone comes from the catalogue, not from another c
   // …whereas the journal's own timestamp would have condemned both rows.
   assert.equal((await goneFrom('u1', 'flats', '2026-09-13T08:06:00Z')).length, 2);
 });
+
+test('a revision refreshes when a row was last seen, and says so for nobody else', async () => {
+  const { keepSeen, touchSeen, catalogueOf } = await load();
+
+  await keepSeen('u1', 'flats', [listing('1', 100), listing('2', 200)], 'id', '2026-09-20T08:00:00Z');
+  // A day later, only the first answers for itself. The second is not touched — and that is what makes
+  // it gone, rather than anything written about it.
+  const touched = await touchSeen('u1', 'flats', ['1', 'never-existed'], '2026-09-21T08:00:00Z');
+
+  assert.equal(touched, 1, 'a row that is not in the catalogue is not invented by touching it');
+  const held = await catalogueOf('u1', 'flats');
+  assert.equal(held.find((one) => one.id === '1').lastSeen, '2026-09-21T08:00:00Z');
+  assert.equal(held.find((one) => one.id === '2').lastSeen, '2026-09-20T08:00:00Z');
+  assert.equal(held.find((one) => one.id === '1').firstSeen, '2026-09-20T08:00:00Z', 'and the day it was first met is untouched');
+});

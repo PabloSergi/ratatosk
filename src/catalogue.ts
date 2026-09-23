@@ -123,6 +123,40 @@ export async function catalogueOf(
 }
 
 /**
+ * Mark these rows as still there, without changing anything they say.
+ *
+ * What a revision produces: the postings that answered for themselves. The boundary for "gone" is the
+ * catalogue's own last write, so refreshing the living is the whole of the work — the rest are left
+ * where they are and fall behind it.
+ */
+export async function touchSeen(userId: string, scraper: string, ids: string[], at = new Date().toISOString()): Promise<number> {
+  const wanted = [...new Set(ids.filter(Boolean))];
+  if (wanted.length === 0) return 0;
+
+  if (usingDatabase()) {
+    const pool = await db();
+    const { rowCount } = await pool.query(
+      `UPDATE catalogue SET last_seen = $4::timestamptz
+       WHERE user_id = $1 AND scraper = $2 AND id = ANY($3::text[])`,
+      [userId, scraper, wanted, at],
+    );
+    return rowCount ?? 0;
+  }
+
+  const file = catalogueFileFor(userId, scraper);
+  const had = await readCatalogue(file);
+  let touched = 0;
+  for (const id of wanted) {
+    const one = had[id];
+    if (!one) continue;
+    had[id] = { ...one, lastSeen: at };
+    touched += 1;
+  }
+  await writeCatalogue(file, had);
+  return touched;
+}
+
+/**
  * When this catalogue was last written to.
  *
  * The boundary for "gone" has to come from here and nowhere else. A run is stamped in the journal when

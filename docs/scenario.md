@@ -215,6 +215,32 @@ absence of rows in a run, which is what an increment always looks like.
 Leave it out where rows have no lasting identity — a source whose rows are known only by a fingerprint
 of their own text cannot be catalogued, and a catalogue of those would be new every time it is read.
 
+## `alive`
+
+```json
+{ "alive": { "url": "https://example.com/item/{id}", "gone": "no longer available", "pace": 300 } }
+```
+
+How to ask whether one row is still there. Off unless you say it; needs [`catalogue`](#catalogue),
+because it is the catalogue that is being revised.
+
+`{id}` is where the catalogue's id goes. `gone` is a pattern matched against what comes back — what a
+page says when it no longer holds the thing. `pace` is the wait between questions.
+
+The revision is run separately from the walk, because it answers a different question on a different
+clock: `node scripts/recheck.mjs <scraper>`. What answers for itself has its sighting refreshed; what
+does not is left where it is, and falls behind the catalogue's boundary — which is what
+[`/api/vanished`](#catalogue) reads.
+
+**Why this exists.** On a list a pass walks through to the end, what the pass did not meet is gone, and
+that is free. On a feed a pass reaches the first few hundred of thousands, so the same subtraction
+measures our patience instead of the source: on a live catalogue, of the postings unseen for three
+days every one checked was still up. A source read that way needs asking, not subtracting.
+
+The question is asked from inside a page of the same site, in the scraper's own browser — that is what
+carries the session, and a request made from anywhere else comes back as "sign in" for everything,
+which reads as an empty source. A request costs under a second where opening the page costs five.
+
 ## A quiet day
 
 A scraper that remembers spends most of its life finding rows it has already handed over. That run
