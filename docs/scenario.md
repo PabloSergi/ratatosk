@@ -197,6 +197,12 @@ With it, the scraper keeps a second thing beside its runs: **what the source hol
 what a run brought back. Every row a pass saw goes in, whether or not it was handed on, with the day
 it was first seen and the day it was last seen.
 
+Written **as the walk goes**, page by page. A walk of three hundred pages that is stopped half way —
+a deploy, a restart, a site that stops answering — keeps what it read instead of throwing away the
+hours it spent; measured the expensive way, twice. What is *not* written until the walk reaches its
+end is the fact that it reached it, and that is what answers the next paragraph: a half-written
+catalogue must never read as "everything else has gone".
+
 The difference matters as soon as [`remember`](#remember) is on. A scraper that remembers hands over
 increments — fifty rows this hour, of a source that has thirty thousand. The journal of runs is
 therefore a journal of increments, and adding those runs back together gives the source only until the
@@ -209,8 +215,10 @@ Two things then become answerable exactly, and neither opens a page:
     POST /api/vanished    { "name": "…" }
 
 `/api/catalogue` is the source, paged by id — hand back the `next` from one answer to get the following
-page. `/api/vanished` is what the last pass did not see: let, taken down, sold. Not a guess from the
-absence of rows in a run, which is what an increment always looks like.
+page. `/api/vanished` is what the last **completed** pass did not see: let, taken down, sold. Not a
+guess from the absence of rows in a run, which is what an increment always looks like — and not a
+guess from a walk that was interrupted, which would name every page it never reached. A scraper whose
+walks keep being cut short has no boundary at all, and says so rather than inventing one.
 
 Leave it out where rows have no lasting identity — a source whose rows are known only by a fingerprint
 of their own text cannot be catalogued, and a catalogue of those would be new every time it is read.

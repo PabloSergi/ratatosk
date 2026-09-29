@@ -55,6 +55,14 @@ export interface RunOptions {
    * everything exactly as before.
    */
   worthOpening?: (row: Record<string, string | null>) => boolean;
+  /**
+   * The rows of one page, as soon as they are whole.
+   *
+   * A walk of three hundred pages used to hand everything over at the end, so anything that stopped
+   * it — a restart, a deploy, a crash — threw away every page it had already read. What a page is
+   * worth is known the moment the page is read, so it is passed on then.
+   */
+  onPage?: (rows: Array<Record<string, string | null>>) => Promise<void>;
 }
 
 export async function runScenario(page: PageDriver, scenario: Scenario, options: RunOptions = {}): Promise<RunResult> {
@@ -70,6 +78,12 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
   let pagesVisited = 0;
   let lastExtract: ExtractResult = { rows: [], blocksSeen: 0, missing: {} };
   let paginationStopped: string | undefined;
+  // Rows deepened so far, and the pages already opened: both belong to the walk, not to one page of
+  // it. A list repeats an address across pages, and the budget is spent by the walk as a whole.
+  let visited = 0;
+  let knownAlready = 0;
+  let opened = 0;
+  const openedPages = new Map<string, Record<string, string | null>>();
   const rulesApplied: string[] = [];
 
   try {
@@ -136,6 +150,7 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
       }
       seenPages.add(fingerprint);
     }
+    const fresh: Array<Record<string, string | null>> = [];
     for (const row of lastExtract.rows) {
       // The memory's notion of "the same row", minus its tolerance for bumps: nobody bumped a posting
       // in the three seconds between page one and page two, so two rows differing by their last word
@@ -153,8 +168,32 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
       }
       if (key) collected.add(key);
       rows.push(row);
+      fresh.push(row);
     }
     pagesVisited++;
+
+    // What the list could not carry — the whole text, the photographs — is one page deeper, and it is
+    // fetched now rather than after the last page. Two reasons, and the second is the important one:
+    // a row handed on before it is whole is a row somebody has to guess about, and a walk that stops
+    // half way should still leave behind pages that are finished rather than pages that are started.
+    if (scenario.detail && fresh.length > 0) {
+      try {
+        const walked = await walkIntoRows(page, scenario, fresh, options.rules ?? [], rulesApplied, {
+          ...(options.worthOpening ? { worthOpening: options.worthOpening } : {}),
+          opened,
+          seen: openedPages,
+        });
+        visited += walked.opened;
+        knownAlready += walked.skipped;
+        opened += walked.opened;
+      } catch (error) {
+        paginationStopped = paginationStopped ?? `the walk into rows stopped: ${firstLine(error)}`;
+      }
+    }
+
+    // Said out loud as it goes: the catalogue is what the source holds, and it should not depend on
+    // the walk surviving to its end.
+    if (options.onPage && fresh.length > 0) await options.onPage(fresh);
 
     if (lastExtract.rows.length < scenario.expect.minRowsPerPage) break;
     if (pageIndex === maxPages - 1) break; // budget spent — do not knock on a page we will not read
@@ -167,19 +206,6 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
     } catch (error) {
       paginationStopped = firstLine(error);
       break;
-    }
-  }
-
-  // The list is done. What it could not carry — pay, contacts, the whole text — is one page deeper.
-  let visited = 0;
-  let knownAlready = 0;
-  if (scenario.detail && rows.length > 0) {
-    try {
-      const walked = await walkIntoRows(page, scenario, rows, options.rules ?? [], rulesApplied, options.worthOpening);
-      visited = walked.opened;
-      knownAlready = walked.skipped;
-    } catch (error) {
-      paginationStopped = paginationStopped ?? `the walk into rows stopped: ${firstLine(error)}`;
     }
   }
 
@@ -274,10 +300,15 @@ async function walkIntoRows(
   rows: Array<Record<string, string | null>>,
   rules: SiteRule[],
   rulesApplied: string[],
-  worthOpening?: (row: Record<string, string | null>) => boolean,
+  /** What the walk has spent so far, and what it has already opened — both outlive one page. */
+  sofar: {
+    worthOpening?: (row: Record<string, string | null>) => boolean;
+    opened: number;
+    seen: Map<string, Record<string, string | null>>;
+  },
 ): Promise<{ opened: number; skipped: number }> {
   const detail = scenario.detail!;
-  const seen = new Map<string, Record<string, string | null>>();
+  const { seen, worthOpening } = sofar;
   let opened = 0;
   let skipped = 0;
 
@@ -298,7 +329,7 @@ async function walkIntoRows(
       Object.assign(row, already);
       continue;
     }
-    if (opened >= detail.maxRows) break;
+    if (sofar.opened + opened >= detail.maxRows) break;
 
     try {
       await page.goto(where);

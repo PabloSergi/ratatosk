@@ -80,6 +80,13 @@ CREATE TABLE IF NOT EXISTS catalogue (
 );
 
 CREATE INDEX IF NOT EXISTS catalogue_gone ON catalogue (user_id, scraper, last_seen);
+
+CREATE TABLE IF NOT EXISTS passes (
+  user_id    TEXT        NOT NULL,
+  scraper    TEXT        NOT NULL,
+  started_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (user_id, scraper)
+);
 `;
 
 export async function db(): Promise<Pool> {

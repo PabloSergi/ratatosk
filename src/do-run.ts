@@ -7,7 +7,7 @@ import { log } from './log.js';
 import { memoryFileFor, readMemory, writeMemory, type Seen } from './memory.js';
 import { findProxy, proxiesFileFor, toRunningBrowser } from './proxies.js';
 import { robotsDirFor } from './auth.js';
-import { keepSeen } from './catalogue.js';
+import { finishedPass, keepSeen } from './catalogue.js';
 import { isBrowserRobot, loadRobot } from './robots.js';
 import { keepResult } from './results.js';
 import type { RunResult } from './run.js';
@@ -130,6 +130,11 @@ export async function runForAccount(userId: string, name: string, options: RunOp
       reason: error instanceof Error ? error.message.split('\n')[0]! : String(error).slice(0, 200),
     };
   }
+
+  // A walk that reached its end, said so. The catalogue is written as the walk goes, so without this
+  // there is no way to tell a source of thirty thousand from the first two pages of one — and "what
+  // has gone" is exactly that difference. A broken run says nothing: it did not finish.
+  if (catalogued && run.status !== 'broken') await finishedPass(userId, robot.name, startedAt).catch(() => undefined);
 
   // One timestamp for both, because they are two halves of the same event: the line in the history
   // and the rows it is about have to be findable from each other.

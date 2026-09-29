@@ -558,3 +558,48 @@ test('a rule that unfolds a page fires on the page it is needed on', async () =>
   assert.equal(result.rows[0].body, 'the whole posting');
   assert.ok(result.rulesApplied.some((what) => what.includes('unfold')), 'the run says the rule fired');
 });
+
+/**
+ * A walk that is stopped is a walk that has still read something.
+ *
+ * Pages used to be handed over in one lump at the end, so anything that ended the walk early — a
+ * deploy, a restart, a site that stopped answering — threw away every page already read. A page is
+ * worth what it is worth the moment it is read.
+ */
+test('every page is handed over as it is read, not at the end', async () => {
+  const page = new FakePage({ pages: 3, rowsPerPage: 2 });
+  const handed = [];
+  const scenario = parseScenario(JSON.stringify({ ...withLinks, expect: { minRowsPerPage: 1 } }));
+
+  const result = await runScenario(page, scenario, {
+    onPage: async (rows) => {
+      handed.push(rows.map((row) => row.title));
+    },
+  });
+
+  assert.equal(result.status, 'ok');
+  assert.equal(handed.length, 3, 'three pages, three handovers');
+  assert.deepEqual(handed[0], ['row 0.0', 'row 0.1']);
+  assert.deepEqual(handed.flat(), result.rows.map((row) => row.title), 'and together they are the whole walk');
+});
+
+test('a page is handed over whole, with what lives one level in', async () => {
+  const page = new FoldedDetail();
+  const handed = [];
+  const scenario = parseScenario(
+    JSON.stringify({
+      ...base,
+      list: { rows: '.card', fields: { title: { type: 'text' }, link: { type: 'attr', attr: 'href' } } },
+      detail: { follow: 'link', fields: { body: { type: 'text', selector: '.body' } } },
+      expect: { minRowsPerPage: 1 },
+    }),
+  );
+
+  await runScenario(page, scenario, {
+    rules: [{ name: 'unfold', match: 'example.com', click: ['text=see more'] }],
+    onPage: async (rows) => handed.push(structuredClone(rows)),
+  });
+
+  assert.equal(handed.length, 1);
+  assert.equal(handed[0][0].body, 'the whole posting', 'the deeper page was read before the row was passed on');
+});

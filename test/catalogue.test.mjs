@@ -93,31 +93,40 @@ test('a scraper that goes takes its catalogue with it', async () => {
  * "gone" from the journal's timestamp therefore marks every row the run just saw as missing — the
  * whole source vanishing at once, silently, and whatever cleans up behind it deleting all of it.
  */
-test('the boundary for what is gone comes from the catalogue, not from another clock', async () => {
-  const { keepSeen, goneFrom, lastPassOf } = await load();
+test('the boundary for what is gone comes from a pass that finished', async () => {
+  const { keepSeen, finishedPass, goneFrom, lastPassOf } = await load();
 
-  // The pass began at 08:00 and its rows are stamped so. The journal will stamp it 08:06, when it ended.
-  await keepSeen('u1', 'flats', [listing('1', 100), listing('2', 200)], 'id', '2026-09-13T08:00:00Z');
+  // A walk writes what it sees as it sees it. Half way through, nothing can be said to be missing.
+  await keepSeen('u1', 'flats', [listing('1', 100)], 'id', '2026-09-13T08:00:00Z');
+  assert.equal(await lastPassOf('u1', 'flats'), undefined, 'no pass has finished, so nothing is gone');
+
+  await keepSeen('u1', 'flats', [listing('2', 200)], 'id', '2026-09-13T08:00:00Z');
+  await finishedPass('u1', 'flats', '2026-09-13T08:00:00Z');
 
   const boundary = await lastPassOf('u1', 'flats');
-  assert.equal(boundary, '2026-09-13T08:00:00Z', 'граница — когда каталог в последний раз писали');
-  assert.deepEqual(await goneFrom('u1', 'flats', boundary), [], 'то, что проход только что видел, не пропало');
+  assert.equal(boundary, '2026-09-13T08:00:00Z', 'the boundary is when that pass began');
+  assert.deepEqual(await goneFrom('u1', 'flats', boundary), [], 'what it just saw has not vanished');
 
-  // …whereas the journal's own timestamp would have condemned both rows.
+  // The journal stamps a run when it ended, six minutes later. Measuring against that clock would
+  // condemn every row the pass had just seen.
   assert.equal((await goneFrom('u1', 'flats', '2026-09-13T08:06:00Z')).length, 2);
 });
 
-test('a revision refreshes when a row was last seen, and says so for nobody else', async () => {
-  const { keepSeen, touchSeen, catalogueOf } = await load();
+test('a walk that was stopped half way does not bury what it never reached', async () => {
+  const { keepSeen, finishedPass, goneFrom, lastPassOf } = await load();
 
-  await keepSeen('u1', 'flats', [listing('1', 100), listing('2', 200)], 'id', '2026-09-20T08:00:00Z');
-  // A day later, only the first answers for itself. The second is not touched — and that is what makes
-  // it gone, rather than anything written about it.
-  const touched = await touchSeen('u1', 'flats', ['1', 'never-existed'], '2026-09-21T08:00:00Z');
+  await keepSeen('u1', 'flats', [listing('1', 100), listing('2', 200), listing('3', 300)], 'id', '2026-09-13T08:00:00Z');
+  await finishedPass('u1', 'flats', '2026-09-13T08:00:00Z');
 
-  assert.equal(touched, 1, 'a row that is not in the catalogue is not invented by touching it');
+  // An hour later a walk starts, reads one page, and is killed — a deploy, a restart, a site that
+  // stopped answering. What it read is kept; what it never reached must not read as gone.
+  await keepSeen('u1', 'flats', [listing('1', 110)], 'id', '2026-09-13T09:00:00Z');
+
+  assert.equal(await lastPassOf('u1', 'flats'), '2026-09-13T08:00:00Z', 'the boundary did not move');
+  assert.deepEqual(await goneFrom('u1', 'flats', await lastPassOf('u1', 'flats')), [], 'and nothing is condemned');
+
+  // The hour it did manage to read is not lost either: the price it brought back is the one held now.
+  const { catalogueOf } = await load();
   const held = await catalogueOf('u1', 'flats');
-  assert.equal(held.find((one) => one.id === '1').lastSeen, '2026-09-21T08:00:00Z');
-  assert.equal(held.find((one) => one.id === '2').lastSeen, '2026-09-20T08:00:00Z');
-  assert.equal(held.find((one) => one.id === '1').firstSeen, '2026-09-20T08:00:00Z', 'and the day it was first met is untouched');
+  assert.equal(held.find((one) => one.id === '1').row.price, '110');
 });

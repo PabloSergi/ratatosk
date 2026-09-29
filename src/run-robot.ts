@@ -149,9 +149,25 @@ export async function runRobot(
         }
       : undefined;
 
+  /**
+   * The catalogue, filled as the walk goes rather than at the end of it.
+   *
+   * What a page holds is known the moment the page is read, and a walk that is stopped — a deploy, a
+   * restart, a site that gives up — should leave that knowledge behind rather than throw away hours
+   * of it. Only the patterns are applied here, never a model: this runs per page, and a question per
+   * page is a different bill entirely. The handover below still sifts the whole harvest.
+   */
+  const onPage = options.saw
+    ? async (rows: Array<Record<string, string | null>>): Promise<void> => {
+        const kept = robot.sift ? sift(rows, robot.sift).rows : rows;
+        if (kept.length) await options.saw!(kept);
+      }
+    : undefined;
+
   const run = await runScenario(await options.page(), scenario, {
     rules: options.rules,
     ...(worthOpening ? { worthOpening } : {}),
+    ...(onPage ? { onPage } : {}),
   });
   // A run that did not come back with rows has nothing to sift and nothing to remember. Sifting and
   // remembering are separate things, though: a robot may do either, both, or neither.
@@ -162,7 +178,6 @@ export async function runRobot(
     return { ...run, status: 'empty', rows: [], reason: `the sift kept none of the ${run.rows.length} rows` };
   }
 
-  await options.saw?.(sifted.rows);
   const seen = await remember(sifted.rows, robot.remember, options.memory);
   const spared = run.evidence?.rowsKnownAlready;
   const reason = [sifted.note, seen.note, spared ? `${spared} already read were not opened again` : undefined]

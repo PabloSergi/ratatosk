@@ -20,7 +20,7 @@
  * a source whose rows are identified by a fingerprint of their own text cannot be catalogued, and
  * pretending otherwise would fill a table with rows that are new every time they are read.
  */
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { db, usingDatabase } from './db.js';
 
@@ -35,6 +35,11 @@ export interface Listed {
 
 export function catalogueFileFor(userId: string, scraper: string): string {
   return join(process.env['RATATOSK_CATALOGUE'] ?? 'catalogue', safe(userId), `${safe(scraper)}.json`);
+}
+
+/** Beside the catalogue: when its last complete pass began. See finishedPass. */
+function passFileFor(userId: string, scraper: string): string {
+  return join(process.env['RATATOSK_CATALOGUE'] ?? 'catalogue', safe(userId), `${safe(scraper)}.pass`);
 }
 
 /**
@@ -166,15 +171,42 @@ export async function touchSeen(userId: string, scraper: string, ids: string[], 
 export async function lastPassOf(userId: string, scraper: string): Promise<string | undefined> {
   if (usingDatabase()) {
     const pool = await db();
-    const { rows } = await pool.query<{ last: Date | null }>(
-      'SELECT max(last_seen) AS last FROM catalogue WHERE user_id = $1 AND scraper = $2',
+    const { rows } = await pool.query<{ started_at: Date }>(
+      'SELECT started_at FROM passes WHERE user_id = $1 AND scraper = $2',
       [userId, scraper],
     );
-    return rows[0]?.last ? rows[0].last.toISOString() : undefined;
+    return rows[0]?.started_at ? rows[0].started_at.toISOString() : undefined;
   }
 
-  const had = Object.values(await readCatalogue(catalogueFileFor(userId, scraper)));
-  return had.length ? had.reduce((latest, one) => (one.lastSeen > latest ? one.lastSeen : latest), '') : undefined;
+  return readFile(passFileFor(userId, scraper), 'utf8').then(
+    (at) => at.trim() || undefined,
+    () => undefined,
+  );
+}
+
+/**
+ * A pass that reached its end, written down as one.
+ *
+ * The catalogue is filled as the walk goes, so that an interrupted walk still leaves what it saw —
+ * two and a half hours of walking were thrown away by a restart before it did. But a half-written
+ * catalogue must never be read as "everything else has gone", and the only thing that tells the two
+ * apart is whether the walk finished. So finishing is recorded separately, and it is that moment,
+ * not the newest sighting, that answers what is missing.
+ */
+export async function finishedPass(userId: string, scraper: string, startedAt: string): Promise<void> {
+  if (usingDatabase()) {
+    const pool = await db();
+    await pool.query(
+      `INSERT INTO passes (user_id, scraper, started_at) VALUES ($1, $2, $3::timestamptz)
+       ON CONFLICT (user_id, scraper) DO UPDATE SET started_at = EXCLUDED.started_at`,
+      [userId, scraper, startedAt],
+    );
+    return;
+  }
+
+  const file = passFileFor(userId, scraper);
+  await mkdir(dirname(file), { recursive: true });
+  await writeFile(file, `${startedAt}\n`, 'utf8');
 }
 
 /** What the source has stopped holding: listed once, and not seen since the given moment. */
@@ -203,9 +235,11 @@ export async function forgetCatalogue(userId: string, scraper: string): Promise<
   if (usingDatabase()) {
     const pool = await db();
     await pool.query('DELETE FROM catalogue WHERE user_id = $1 AND scraper = $2', [userId, scraper]);
+    await pool.query('DELETE FROM passes WHERE user_id = $1 AND scraper = $2', [userId, scraper]);
     return;
   }
   await writeCatalogue(catalogueFileFor(userId, scraper), {});
+  await rm(passFileFor(userId, scraper), { force: true }).catch(() => undefined);
 }
 
 /** A rename takes the catalogue with it, like everything else a name is the key to. */
@@ -213,9 +247,11 @@ export async function moveCatalogue(userId: string, from: string, to: string): P
   if (usingDatabase()) {
     const pool = await db();
     await pool.query('UPDATE catalogue SET scraper = $3 WHERE user_id = $1 AND scraper = $2', [userId, from, to]);
+    await pool.query('UPDATE passes SET scraper = $3 WHERE user_id = $1 AND scraper = $2', [userId, from, to]);
     return;
   }
   await rename(catalogueFileFor(userId, from), catalogueFileFor(userId, to)).catch(() => undefined);
+  await rename(passFileFor(userId, from), passFileFor(userId, to)).catch(() => undefined);
 }
 
 async function readCatalogue(file: string): Promise<Record<string, Listed>> {
