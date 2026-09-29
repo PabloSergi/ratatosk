@@ -99,6 +99,9 @@ async function answers(display: string): Promise<boolean> {
 }
 
 async function ensureScreen(): Promise<void> {
+  // Only where a browser needs one. A Mac or a Windows machine draws headed windows by itself, and
+  // going looking for an X server there fails for a reason that has nothing to do with anything.
+  if (process.platform !== 'linux') return;
   if (await answers(SCREEN)) return;
 
   // What a dead server left behind. Xvfb refuses to start while the lock is there, which turns one
