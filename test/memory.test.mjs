@@ -217,3 +217,55 @@ test('a row identified by its own words has no id to report as gone', async () =
   // Nothing is claimed rather than a fingerprint handed back as if it were an address.
   assert.deepEqual(vanished(before.memory, '2026-09-11T08:00:00Z'), []);
 });
+
+/**
+ * The same advert, posted again a week later.
+ *
+ * A posting that is reposted every morning is met every morning, so the key never ages out — that is
+ * what `days` does and it is right for a board. It is wrong where whatever we feed drops a listing
+ * after a few days of its own: the advert is still being posted, and our side has nothing to show.
+ * `again` is the other clock — not when it was last seen, but when it was last passed on.
+ */
+test('the same advert is passed on again a week later, and not before', async () => {
+  const { meet } = await import('../src/memory.ts');
+
+  const advert = [{ text: 'Ищем моделей в студию, оплата 60% еженедельно, Москва, опыт не важен' }];
+  const rule = { mode: 'new', again: 7 };
+  const day = (n) => new Date(`2026-09-${String(n).padStart(2, '0')}T06:00:00Z`);
+
+  let memory = {};
+  const morning = (n) => {
+    const seen = meet(advert, memory, rule, day(n));
+    memory = seen.memory;
+    return seen;
+  };
+
+  assert.equal(morning(1).fresh.length, 1, 'the first morning it is news');
+  for (let n = 2; n <= 7; n += 1) {
+    assert.equal(morning(n).fresh.length, 0, `day ${n}: the same advert reposted is not news`);
+  }
+
+  // A week after it was handed over, the advert is still being posted — and that repost is worth
+  // passing on, because on the other side the first one has long since been archived.
+  const week = morning(8);
+  assert.equal(week.fresh.length, 1, 'a week later the posting standing today is passed on again');
+  assert.equal(week.fresh[0], advert[0], 'the message met now, not a copy of the old one');
+
+  assert.equal(morning(9).fresh.length, 0, 'and the clock starts again from the handover');
+});
+
+test('without asking for it, a repost is never passed on twice', async () => {
+  const { meet } = await import('../src/memory.ts');
+
+  const advert = [{ text: 'Ищем моделей в студию, оплата 60% еженедельно, Москва, опыт не важен' }];
+  let memory = meet(advert, {}, { mode: 'new' }, new Date('2026-09-01T06:00:00Z')).memory;
+
+  // Two months of daily reposting, with no `again`: the key is refreshed every day, so `days` never
+  // comes round and the advert is handed over exactly once. That is the behaviour a board wants.
+  for (let n = 0; n < 60; n += 1) {
+    const at = new Date(Date.UTC(2026, 8, 2 + n, 6, 0, 0));
+    const seen = meet(advert, memory, { mode: 'new' }, at);
+    memory = seen.memory;
+    assert.equal(seen.fresh.length, 0, `day ${n + 2} is still the same advert`);
+  }
+});

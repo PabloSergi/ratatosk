@@ -24,6 +24,19 @@ export interface Remember {
   /** How long a key is kept after it was last seen, in days. */
   days?: number;
   /**
+   * Hand the same thing over again after this many days, even though it never went away.
+   *
+   * `days` cannot do this and it is worth being clear why: it counts from the last sighting, and a
+   * posting that is reposted every morning is sighted every morning, so its key never ages out — not
+   * in thirty days, not in seven. That is right for a board, where a listing that is still up is the
+   * same listing and nobody wants it twice.
+   *
+   * It is wrong wherever what we feed strips a posting out after a few days of its own: the advert is
+   * still there, the reposter is still reposting it, and our side quietly has nothing. So this is the
+   * other clock — not "when did we last see it" but "when did we last pass it on".
+   */
+  again?: number;
+  /**
    * What a run returns. "new" is the point of remembering at all; "all" keeps every row and only
    * counts the repeats, for somebody who wants the whole picture every time.
    */
@@ -34,6 +47,9 @@ export interface Seen {
   firstSeen: string;
   lastSeen: string;
   times: number;
+  /** When it was last handed over. Absent on rows remembered before this was kept: they were handed
+   *  over when they were first seen, which is what firstSeen says. */
+  handedAt?: string;
 }
 
 export type Row = Record<string, string | null>;
@@ -226,12 +242,23 @@ export function meet(
 
     const known = next[key];
     if (known) {
-      next[key] = { firstSeen: known.firstSeen, lastSeen: stamp, times: known.times + 1 };
-      repeated.push({ row, firstSeen: known.firstSeen, times: known.times + 1 });
+      const handedAt = known.handedAt ?? known.firstSeen;
+      const dueAgain =
+        rule.again !== undefined &&
+        now.getTime() - new Date(handedAt).getTime() >= rule.again * 24 * 60 * 60 * 1000;
+
+      next[key] = {
+        firstSeen: known.firstSeen,
+        lastSeen: stamp,
+        times: known.times + 1,
+        handedAt: dueAgain ? stamp : handedAt,
+      };
+      if (dueAgain) fresh.push(row);
+      else repeated.push({ row, firstSeen: known.firstSeen, times: known.times + 1 });
       continue;
     }
 
-    next[key] = { firstSeen: stamp, lastSeen: stamp, times: 1 };
+    next[key] = { firstSeen: stamp, lastSeen: stamp, times: 1, handedAt: stamp };
     fresh.push(row);
   }
 

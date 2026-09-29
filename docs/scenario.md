@@ -147,8 +147,27 @@ is new.
   everything and marks the repeats with `seenBefore` and `timesSeen`.
 - `days` — how long a row is remembered after it was last seen. Default 30. A posting that vanished for
   two months and came back is news again.
+- `again` — hand the same thing over again after this many days, **even though it never went away**.
+  Off unless you ask for it.
 - `by` — which column identifies a row. Leave it out and the scraper decides, which is almost always
   what you want.
+
+### Handing the same thing over again
+
+`days` cannot do this, and the reason is worth knowing: it counts from the last sighting, and an
+advert reposted every morning is sighted every morning — so its key never ages out, not in thirty days
+and not in seven. That is right for a board, where a listing still up is the same listing.
+
+It is wrong wherever what you feed drops a posting after a few days of its own. The advert is still
+there, the reposter is still reposting it, and your side quietly has nothing to show. `again` is the
+other clock: not *when did we last see it* but *when did we last pass it on*.
+
+```json
+{ "remember": { "mode": "new", "again": 7 } }
+```
+
+What is handed over is the sighting that happened now — today's message, with today's link — not a
+copy of the one from a week ago.
 
 ### What identifies a row
 
