@@ -100,17 +100,36 @@ export async function runForAccount(userId: string, name: string, options: RunOp
     ? (rows: Array<Record<string, string | null>>) => keepSeen(userId, robot.name, rows, catalogued, startedAt).then(() => undefined)
     : undefined;
 
-  const run = await options.pool.use(poolKey(userId, isBrowserRobot(robot) ? robot.proxy : undefined), (session) =>
-    runRobot(robot, {
-      page: async () => session.page,
-      rules: options.rules,
-      ...(options.maxPages ? { maxPages: options.maxPages } : {}),
-      telegramSession,
-      ...(ask ? { ask } : {}),
-      ...(memory ? { memory } : {}),
-      ...(saw ? { saw } : {}),
-    }),
-  );
+  /**
+   * A run that threw is a run that failed, and it has to be written down as one.
+   *
+   * Everything below this line — the journal, the kept rows, the message to the owner — happens after
+   * the run. Let the throw through and none of it happens: the card still shows the last run that
+   * worked, nobody is told, and a scraper failing every hour looks exactly like a scraper nobody has
+   * started. Measured the expensive way: a dead screen in the browsers' container took two days to
+   * notice, because every run since had ended here.
+   */
+  let run: RunResult;
+  try {
+    run = await options.pool.use(poolKey(userId, isBrowserRobot(robot) ? robot.proxy : undefined), (session) =>
+      runRobot(robot, {
+        page: async () => session.page,
+        rules: options.rules,
+        ...(options.maxPages ? { maxPages: options.maxPages } : {}),
+        telegramSession,
+        ...(ask ? { ask } : {}),
+        ...(memory ? { memory } : {}),
+        ...(saw ? { saw } : {}),
+      }),
+    );
+  } catch (error) {
+    run = {
+      status: 'broken',
+      rows: [],
+      pagesVisited: 0,
+      reason: error instanceof Error ? error.message.split('\n')[0]! : String(error).slice(0, 200),
+    };
+  }
 
   // One timestamp for both, because they are two halves of the same event: the line in the history
   // and the rows it is about have to be findable from each other.

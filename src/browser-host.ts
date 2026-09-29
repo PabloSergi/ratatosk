@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createServer as createRelay, connect, type Server as TcpServer } from 'node:net';
 import { rm } from 'node:fs/promises';
@@ -5,7 +6,7 @@ import { join } from 'node:path';
 
 import { chromium, type BrowserContext } from 'patchright';
 
-import { debug, info } from './log.js';
+import { debug, info, warn } from './log.js';
 import { toRunningBrowserUrl } from './proxies.js';
 
 /**
@@ -72,6 +73,53 @@ async function relayTo(debugPort: number, on: number): Promise<TcpServer> {
 }
 
 /**
+ * The screen, alive — checked every time, because it is not always.
+ *
+ * A headed browser needs an X server, and the one here is started by the container's entrypoint and
+ * then forgotten about. When it dies the container stays up, the health check stays green, node keeps
+ * answering, and every browser launched from then on fails in a second with a message nobody reads.
+ * That happened: two days of every scrape failing, because a screen started in the background in a
+ * shell script has nobody to notice it is gone.
+ *
+ * So the screen belongs to whoever needs it. Its socket existing proves nothing — a dead server leaves
+ * one behind and the lock file with it, which is also why it never came back on its own.
+ */
+const SCREEN = process.env['DISPLAY'] ?? ':99';
+
+async function answers(display: string): Promise<boolean> {
+  const socket = `/tmp/.X11-unix/X${display.replace(':', '')}`;
+  return new Promise((resolve) => {
+    const probe = connect(socket);
+    probe.on('connect', () => {
+      probe.destroy();
+      resolve(true);
+    });
+    probe.on('error', () => resolve(false));
+  });
+}
+
+async function ensureScreen(): Promise<void> {
+  if (await answers(SCREEN)) return;
+
+  // What a dead server left behind. Xvfb refuses to start while the lock is there, which turns one
+  // crash into a permanent one.
+  const number = SCREEN.replace(':', '');
+  await Promise.all([
+    rm(`/tmp/.X${number}-lock`, { force: true }).catch(() => undefined),
+    rm(`/tmp/.X11-unix/X${number}`, { force: true }).catch(() => undefined),
+  ]);
+
+  warn('browser host: the screen was gone; starting one', { display: SCREEN });
+  spawn('Xvfb', [SCREEN, '-screen', '0', '1920x1080x24', '-nolisten', 'tcp'], { stdio: 'ignore', detached: true }).unref();
+
+  for (let wait = 0; wait < 50; wait += 1) {
+    if (await answers(SCREEN)) return;
+    await new Promise((settled) => setTimeout(settled, 200));
+  }
+  throw new Error('the screen would not start');
+}
+
+/**
  * The browser for a profile, started if it is not already up.
  *
  * Headed under Xvfb, like everywhere else in this product: headless is the tell that turns a page
@@ -81,6 +129,7 @@ async function browserFor(profileDir: string, proxyUrl?: string): Promise<Runnin
   // The way out, made dialable HERE. A SOCKS5 proxy with a password needs a bridge, and a bridge is a
   // listener on loopback — which is this container's loopback, not the caller's. So what arrives is
   // the proxy as configured, and it is turned into settings on this side of the wire.
+  await ensureScreen();
   const proxy = proxyUrl ? await toRunningBrowserUrl(proxyUrl) : undefined;
   const already = running.get(profileDir);
   if (already) {
@@ -101,7 +150,7 @@ async function browserFor(profileDir: string, proxyUrl?: string): Promise<Runnin
         `--remote-debugging-port=${debugPort}`,
         '--remote-allow-origins=*',
       ],
-      env: { ...process.env, DISPLAY: process.env['DISPLAY'] ?? ':99' },
+          env: { ...process.env, DISPLAY: SCREEN },
       ...(proxy ? { proxy } : {}),
     });
 
@@ -197,7 +246,11 @@ const server = createServer((request: IncomingMessage, response: ServerResponse)
           const one = await browserFor(profileDir, body['proxyUrl'] ? String(body['proxyUrl']) : undefined);
           answer(200, { port: one.port, since: new Date(one.since).toISOString() });
         } catch (error) {
-          answer(500, { error: (error as Error).message.split('\n')[0] });
+          // Said out loud as well as answered. The caller writes "the host gave nothing" and carries
+          // on; the reason it gave nothing has to be somewhere, or the next person asks it by hand.
+          const why = (error as Error).message.split('\n')[0]!;
+          warn('browser host: could not start a browser', { profileDir, why });
+          answer(500, { error: why });
         }
       },
       () => answer(400, { error: 'bad input' }),
