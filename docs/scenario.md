@@ -190,6 +190,26 @@ name the column yourself:
 
 which is per-message identity, said out loud. `by` is obeyed everywhere and overrules all of the above.
 
+## `detail`
+
+```json
+{ "detail": { "follow": "link", "fields": { "body": { "type": "text", "selector": ".description" } },
+              "maxRows": 40, "waitMs": 8000 } }
+```
+
+What the list could not carry, taken from the row's own page. `follow` names the column holding the
+address; `maxRows` is the budget for the whole walk, because every row is a page load.
+
+The page is **waited for, not guessed at**: after it opens, the walk waits until one of these fields
+is actually on it, up to `waitMs` (eight seconds by default). A fixed pause is a bet on how fast
+somebody else's server is today, and a lost bet is silent — the field comes back empty, which reads
+exactly like a selector that has rotted. Measured on a live board: the same pages that gave nothing
+after four hundred milliseconds gave eight hundred to twelve hundred characters when waited for.
+
+Any one of the fields is enough to stop waiting, not all of them: a field marked `optional` may
+legitimately be missing, and waiting for the whole set would spend the timeout on every page lacking
+one.
+
 ### What is not opened twice
 
 A scenario with both `detail` and `remember` does not open a page for a row it has already handed over.

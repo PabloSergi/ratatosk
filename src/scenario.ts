@@ -83,6 +83,8 @@ export interface DetailRule {
    * that takes a minute and one that takes an hour — the cap is part of the scenario, not a guess.
    */
   maxRows: number;
+  /** How long to wait for one of these fields to appear on the page. Default eight seconds. */
+  waitMs?: number;
 }
 
 export type PaginationRule =
@@ -194,6 +196,7 @@ export function parseScenario(raw: string | unknown): Scenario {
             follow: detail['follow'] as string,
             fields: detail['fields'] as Record<string, FieldRule>,
             maxRows: numberOr(detail['maxRows'], 40),
+            ...(detail['waitMs'] !== undefined ? { waitMs: numberOr(detail['waitMs'], 8000) } : {}),
           },
         }
       : {}),

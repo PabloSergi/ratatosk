@@ -22,6 +22,7 @@ class Board {
   async click() {}
   async waitMs() {}
   async evaluate(source, argument) {
+    if (source.includes('list.some')) return true;
     if (source.includes('querySelectorAll(selector).length')) return 5;
     if (source.includes('blocksSeen')) {
       if (argument?.rows === 'html') {

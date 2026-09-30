@@ -327,6 +327,9 @@ class PageWithRows extends FakePage {
     }
   }
   async evaluate(fn, argument) {
+    // The row's page answers that what we came for is there; a fake that stays silent makes the walk
+    // wait out its whole timeout on every row.
+    if (fn.includes('list.some')) return this.where !== 'list';
     if (fn.includes('blocksSeen')) {
       if (this.where !== 'list') {
         // The row's own page: one block, holding what the list could not.
@@ -529,6 +532,9 @@ class FoldedDetail extends FakePage {
   async goto(url) { this.url = url; this.unfolded = false; }
   async click(selector) { if (selector.includes('see more')) this.unfolded = true; }
   async evaluate(fn, argument) {
+    // A fake that is walked into has to answer "is what we came for there yet?" — one that stays
+    // silent makes the walk sit out its whole timeout.
+    if (fn.includes('list.some')) return true;
     if (fn.includes('blocksSeen')) {
       if (argument?.rows === 'html') {
         return { rows: [{ body: this.unfolded ? 'the whole posting' : null }], blocksSeen: 1, missing: {} };
@@ -602,4 +608,61 @@ test('a page is handed over whole, with what lives one level in', async () => {
 
   assert.equal(handed.length, 1);
   assert.equal(handed[0][0].body, 'the whole posting', 'the deeper page was read before the row was passed on');
+});
+
+/**
+ * A page one level in is drawn by somebody else's code, at somebody else's speed.
+ *
+ * The walk used to read it after a fixed pause, which is a bet: lose it and the field comes back
+ * empty, which reads exactly like a selector that has rotted. Measured on a live board — the same
+ * pages that gave nothing after four hundred milliseconds gave a thousand characters when waited for.
+ */
+class SlowDetail extends FakePage {
+  constructor(showsAfterMs) {
+    super({ rowsPerPage: 1, pages: 1 });
+    this.showsAfterMs = showsAfterMs;
+    this.opened = 0;
+  }
+  async goto(url) { this.url = url; this.opened = Date.now(); }
+  async waitMs(ms) { await new Promise((slept) => setTimeout(slept, Math.min(ms, 20))); }
+  there() { return Date.now() - this.opened >= this.showsAfterMs; }
+  async evaluate(source, argument) {
+    if (source.includes('list.some')) return this.there();
+    if (source.includes('blocksSeen')) {
+      if (argument?.rows === 'html') {
+        return { rows: [{ body: this.there() ? 'the whole posting' : null }], blocksSeen: 1, missing: {} };
+      }
+      return { rows: [{ title: 'a posting', link: 'https://example.com/posting/1' }], blocksSeen: 1, missing: {} };
+    }
+    if (source.includes('document.querySelector(selector)')) return false;
+    if (source.includes('blocks.length')) return { count: 1, texts: ['one'] };
+    return super.evaluate(source, argument);
+  }
+}
+
+const deepened = {
+  ...base,
+  list: { rows: '.card', fields: { title: { type: 'text' }, link: { type: 'attr', attr: 'href' } } },
+  detail: { follow: 'link', fields: { body: { type: 'text', selector: '.body' } }, waitMs: 3000 },
+  expect: { minRowsPerPage: 1 },
+};
+
+test('a page one level in is waited for, not guessed at', async () => {
+  // Late by more than the old fixed pause, early enough that waiting for it is not a hang.
+  const page = new SlowDetail(600);
+  const result = await runScenario(page, parseScenario(JSON.stringify(deepened)));
+
+  assert.equal(result.rows[0].body, 'the whole posting', 'the text that arrives late still arrives');
+});
+
+test('waiting for it gives up rather than hanging on a page that never shows it', async () => {
+  const page = new SlowDetail(Number.POSITIVE_INFINITY);
+  const began = Date.now();
+  const result = await runScenario(
+    page,
+    parseScenario(JSON.stringify({ ...deepened, detail: { ...deepened.detail, waitMs: 400 } })),
+  );
+
+  assert.equal(result.rows[0].body, null, 'the field is empty, and the walk went on');
+  assert.ok(Date.now() - began < 3000, 'and it did not sit there waiting for a page that has nothing');
 });

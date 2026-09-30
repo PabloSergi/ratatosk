@@ -3,7 +3,7 @@ import { sameRowInThisRun } from './memory.js';
 import type { ExtractResult } from './extractor.js';
 import { asExtractResult, EXTRACTOR_SOURCE, ExtractionError } from './extractor.js';
 import { applyRules, type SiteRule } from './rules.js';
-import type { PaginationRule, Scenario, WaitRule } from './scenario.js';
+import type { FieldRule, PaginationRule, Scenario, WaitRule } from './scenario.js';
 
 /**
  * A run never reports plain success. It ends in one of three states, and two of them carry a reason:
@@ -269,6 +269,30 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
   };
 }
 
+/**
+ * Wait until one of the fields we are about to read is actually there.
+ *
+ * Any of them, not all: a field marked optional may legitimately be missing, and waiting for the
+ * whole set would spend the timeout on every page that lacks one. A field with no selector reads the
+ * page itself and so is always present — such a rule is not worth waiting for and is skipped.
+ */
+async function waitForAny(page: PageDriver, fields: Record<string, FieldRule>, timeoutMs: number): Promise<void> {
+  const selectors = Object.values(fields)
+    .map((field) => field.selector)
+    .filter((selector): selector is string => Boolean(selector));
+  if (selectors.length === 0) return;
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const there = await page.evaluate<boolean>(
+      `(list) => list.some((selector) => { try { return Boolean(document.querySelector(selector)); } catch (e) { return false; } })`,
+      selectors,
+    );
+    if (there) return;
+    await page.waitMs(250);
+  }
+}
+
 /** Wait for the real DOM, not for a challenge page. Returns false on timeout; the caller decides what that means. */
 export async function waitForContent(page: PageDriver, wait: WaitRule): Promise<boolean> {
   const deadline = Date.now() + wait.timeoutMs;
@@ -334,6 +358,16 @@ async function walkIntoRows(
     try {
       await page.goto(where);
       await page.waitMs(scenario.pace ?? 400);
+      /**
+       * Wait for the thing we came for, not for a number of milliseconds.
+       *
+       * A page one level in is a page like any other: on a site drawn by its own code, the text
+       * arrives a second or two after the address does. A fixed pause is a bet on how fast somebody
+       * else's server is today, and a lost bet is silent — the field comes back empty and reads as a
+       * selector that has rotted. Measured on a live board: the same pages that gave nothing at four
+       * hundred milliseconds gave eight hundred to twelve hundred characters when waited for.
+       */
+      await waitForAny(page, detail.fields, detail.waitMs ?? 8000);
       // The same site, so the same rules: a page deeper in is where a "see more" hides the description
       // and a banner covers the rest. Firing them only on the first page reads half of every posting.
       if (rules.length) rulesApplied.push(...(await applyRules(page, rules)));
