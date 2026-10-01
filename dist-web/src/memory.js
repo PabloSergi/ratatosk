@@ -1,0 +1,191 @@
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+const DEFAULT_DAYS = 30;
+/** Column names that mean "the address of this thing", in the languages people build scrapers in. */
+const LINK_NAMES = ['link', 'url', 'href', 'ссылка', 'enlace', 'lien', 'länk', 'odkaz'];
+/**
+ * How much text has to be left after dropping a trailing scrap for the drop to be safe. Below this,
+ * the last word is not a bump — it is what distinguishes one row from the next.
+ */
+const ENOUGH_WITHOUT_THE_TAIL = 40;
+/** …and the ones that mean "when", which change on their own and so cannot identify anything. */
+const WHEN_NAMES = /date|time|seen|дата|время|fecha|hora|datum|zeit/i;
+/**
+ * How much of a message its identity is taken from. Long enough that two different postings rarely
+ * share it, short enough that a bump appended to the end changes nothing.
+ */
+const HEAD = Number(process.env['RATATOSK_IDENTITY_HEAD'] ?? 200);
+export function memoryFileFor(userId, robot) {
+    const safe = robot.replace(/[^a-z0-9._-]+/gi, '-').toLowerCase();
+    return join(process.env['RATATOSK_MEMORY'] ?? 'memory', userId, `${safe}.json`);
+}
+/**
+ * The identity of a row.
+ *
+ * A link is the honest key when there is one: the same posting keeps its address. Without one, the
+ * text is fingerprinted — but normalised first, because a reposted advertisement is never quite
+ * identical: emoji get swapped, spacing changes, someone appends "UP" or "still open" to bump it.
+ *
+ * So the fingerprint is taken from the BEGINNING of the normalised text, not the whole of it. A bump
+ * is appended, an edit is usually appended, and what somebody wrote first is what identifies their
+ * posting. The cost of this is honest and worth saying: two different postings that open with the same
+ * long template — the same agency's boilerplate, say — are read as one. A source like that wants an
+ * explicit column as its identity instead.
+ */
+export function identity(row, by) {
+    return key(row, by, true);
+}
+/**
+ * The identity of a row within ONE run, where a bump cannot have happened.
+ *
+ * The difference matters and it is not a detail. Between runs, "…оплата 60% UP" and "…оплата 60%" are
+ * one posting somebody pushed back to the top. Within a single walk, nobody bumped anything in the
+ * three seconds between page one and page two — so two rows that differ by their last word are two
+ * rows, and merging them loses one. "Room 1" and "Room 2" is the whole of the argument.
+ */
+export function sameRowInThisRun(row) {
+    return key(row, undefined, false);
+}
+function key(row, by, stripBumps) {
+    if (by) {
+        const value = row[by];
+        return value ? `k:${value.trim().toLowerCase()}` : undefined;
+    }
+    // Column names are chosen by whoever built the scraper, in whatever language they think in. A link
+    // is the honest identity of a row whether the column is called "link" or "enlace"; anything not
+    // guessed here can be named outright with `by`.
+    const link = LINK_NAMES.map((name) => row[name]).find((value) => typeof value === 'string' && value !== '');
+    if (typeof link === 'string' && /^https?:\/\//.test(link))
+        return `k:${link.trim().toLowerCase()}`;
+    const text = Object.entries(row)
+        // Same reason: a timestamp is not part of what a posting IS, in any language.
+        .filter(([name]) => !WHEN_NAMES.test(name))
+        .map(([, value]) => (typeof value === 'string' ? value : ''))
+        .join(' ')
+        .toLowerCase()
+        .replace(/https?:\/\/\S+/g, ' ')
+        .replace(/[^\p{L}\p{N}]+/gu, ' ')
+        .trim();
+    // A bump is a scrap on the end — "up" in any language, a repeated emoji already stripped above. One
+    // or two characters trailing the text carry no meaning on a real posting and must not make a repost
+    // look like news.
+    //
+    // …but only on a real posting. On a short row the last word is most of what the row says: "Room 1"
+    // and "Room 2" differ by exactly the scrap this would throw away, and throwing it away merges two
+    // rows into one and loses one of them for good. So the tail is only ignored when there is a body
+    // left that is worth identifying.
+    const trimmed = text.replace(/(?:\s+\S{1,2})+$/u, '').trim();
+    const body = stripBumps && trimmed.length >= ENOUGH_WITHOUT_THE_TAIL ? trimmed : text;
+    if (body.length < 12)
+        return undefined; // too little to be an identity; treat it as always new
+    return `h:${createHash('sha256').update(body.slice(0, HEAD)).digest('hex').slice(0, 24)}`;
+}
+/**
+ * The identity of a Telegram message.
+ *
+ * A message carries its own address — a link and a number — and both address the MESSAGE. The same
+ * advert posted again tomorrow is a different message at a different address, so a memory keyed on one
+ * lets a channel that reposts every morning through every morning, and by Friday the table holds the
+ * same eleven jobs five times over. A link is the honest key on a job board, where a posting keeps its
+ * address; in a channel it is the opposite of one.
+ *
+ * What a post IS, is what it says. So it is identified by its text, with the same normalising and the
+ * same tolerance for a bump on the end as anywhere else, and by nothing else about it. A scraper that
+ * names its own column with `by` is still obeyed: that is somebody saying they know better about their
+ * own source, which they may well.
+ */
+export function identityOfMessage(row, by) {
+    if (by)
+        return identity(row, by);
+    const text = row['text'];
+    return typeof text === 'string' && text !== '' ? key({ text }, undefined, true) : identity(row);
+}
+/**
+ * What the scraper has stopped seeing.
+ *
+ * A board answers "here is everything that is up right now", and the interesting half of that is what
+ * is NOT in it any more: a flat that has been let, an advert that was taken down. Nobody has to open
+ * anything to know it — the memory already holds when each row was last met, so a row whose last
+ * sighting is older than the last completed pass simply was not in that pass.
+ *
+ * Only rows identified by a named column can be reported this way. A row identified by a fingerprint
+ * of its own text has no id to hand back, and inventing one would be worse than saying nothing.
+ */
+export function vanished(memory, since) {
+    const boundary = Date.parse(since);
+    const gone = [];
+    for (const [key, seen] of Object.entries(memory)) {
+        if (!key.startsWith('k:'))
+            continue;
+        if (Date.parse(seen.lastSeen) >= boundary)
+            continue;
+        gone.push({ id: key.slice(2), lastSeen: seen.lastSeen, times: seen.times });
+    }
+    return gone.sort((one, other) => one.lastSeen.localeCompare(other.lastSeen));
+}
+export async function readMemory(file) {
+    try {
+        return JSON.parse(await readFile(file, 'utf8'));
+    }
+    catch {
+        return {};
+    }
+}
+export async function writeMemory(file, memory) {
+    await mkdir(dirname(file), { recursive: true });
+    const temporary = `${file}.writing`;
+    await writeFile(temporary, `${JSON.stringify(memory)}\n`, 'utf8');
+    await rename(temporary, file);
+}
+/**
+ * Meet a run's rows against what the robot remembers, and move the memory forward.
+ *
+ * Nothing here decides what a run returns — that is the caller's business, because "only what is new"
+ * and "everything, with the repeats marked" are both legitimate and different jobs.
+ */
+export function meet(rows, memory, rule = {}, now = new Date(), 
+/** What identifies a row here. A page walk is identified by its links; a channel, by what was said. */
+identify = identity) {
+    const stamp = now.toISOString();
+    const fresh = [];
+    const repeated = [];
+    const next = { ...memory };
+    for (const row of rows) {
+        const key = identify(row, rule.by);
+        if (!key) {
+            fresh.push(row); // nothing to remember it by, so it can only ever be new
+            continue;
+        }
+        const known = next[key];
+        if (known) {
+            const handedAt = known.handedAt ?? known.firstSeen;
+            const dueAgain = rule.again !== undefined &&
+                now.getTime() - new Date(handedAt).getTime() >= rule.again * 24 * 60 * 60 * 1000;
+            next[key] = {
+                firstSeen: known.firstSeen,
+                lastSeen: stamp,
+                times: known.times + 1,
+                handedAt: dueAgain ? stamp : handedAt,
+            };
+            if (dueAgain)
+                fresh.push(row);
+            else
+                repeated.push({ row, firstSeen: known.firstSeen, times: known.times + 1 });
+            continue;
+        }
+        next[key] = { firstSeen: stamp, lastSeen: stamp, times: 1, handedAt: stamp };
+        fresh.push(row);
+    }
+    // Forgetting matters as much as remembering: a posting that disappeared for two months and came
+    // back is news, and a memory that only grows eventually costs more than the scraping.
+    const keepAfter = now.getTime() - (rule.days ?? DEFAULT_DAYS) * 24 * 60 * 60 * 1000;
+    let forgotten = 0;
+    for (const [key, seen] of Object.entries(next)) {
+        if (new Date(seen.lastSeen).getTime() < keepAfter) {
+            delete next[key];
+            forgotten++;
+        }
+    }
+    return { fresh, repeated, memory: next, forgotten };
+}

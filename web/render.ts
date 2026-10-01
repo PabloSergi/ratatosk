@@ -19,7 +19,17 @@ export function badge(status: RunStatus | 'weak'): string {
   return `<span class="badge ${status}">${status}</span>`;
 }
 
-/** Rows come from a page, so every value is treated as text — links become links, nothing else does. */
+/**
+ * Rows come from a page, so every value is treated as text — links become links, nothing else does.
+ *
+ * And a value is shown, not poured out. What a scraper brings back is whatever the site had in that
+ * block: usually a line, sometimes a whole menu. One such cell is enough to push everything under it
+ * off the screen, and then the thing a person opened the panel to read — what was repaired, what came
+ * back — is somewhere below the fold with no sign that it is there. The whole value stays one hover
+ * away, in the cell's title.
+ */
+const SHOWN = 140;
+
 export function rowsTable(rows: Row[] | undefined, limit = 50): string {
   if (!rows?.length) return '';
   const columns = Object.keys(rows[0]!);
@@ -31,9 +41,14 @@ export function rowsTable(rows: Row[] | undefined, limit = 50): string {
       const cells = columns.map((column) => {
         const value = row[column];
         if (value === null || value === undefined || value === '') return '<td class="muted">—</td>';
-        return /^https?:\/\//.test(value)
-          ? `<td><a href="${escapeHtml(value)}" target="_blank" rel="noreferrer">${escapeHtml(value.slice(0, 70))}</a></td>`
-          : `<td>${escapeHtml(value)}</td>`;
+        if (/^https?:\/\//.test(value)) {
+          return `<td><a href="${escapeHtml(value)}" target="_blank" rel="noreferrer">${escapeHtml(value.slice(0, 70))}</a></td>`;
+        }
+        const flat = value.replace(/\s+/g, ' ').trim();
+        const shown = flat.length > SHOWN ? `${flat.slice(0, SHOWN)}…` : flat;
+        return flat.length > SHOWN
+          ? `<td title="${escapeHtml(flat)}">${escapeHtml(shown)}</td>`
+          : `<td>${escapeHtml(shown)}</td>`;
       });
       return `<tr>${cells.join('')}</tr>`;
     })

@@ -1,0 +1,133 @@
+import { buildSift } from './sift-agent.js';
+import { judgeSift, sift } from './sift.js';
+/** How wrong the kept rows may be before a rule counts as rotted. */
+const WRONG_ENOUGH = 0.2;
+export async function repairRule(input) {
+    const want = input.want ?? input.sift.want ?? input.sift.judge?.want ?? '';
+    const before = await measure(input.rows, input.sift, want, input.ask);
+    if (before.good)
+        return { status: 'not-needed', before, diff: [] };
+    if (!want) {
+        return {
+            status: 'unfixable',
+            before,
+            diff: [],
+            reason: 'this rule was written by hand and carries no task, so there is nothing to write it again from',
+        };
+    }
+    const written = await buildSift({
+        sample: input.rows,
+        want,
+        apiKey: input.model?.apiKey ?? '',
+        model: input.model?.model ?? '',
+        baseUrl: input.model?.baseUrl ?? '',
+        ask: input.ask,
+    });
+    if (!written.sift) {
+        return { status: 'unfixable', before, diff: [], reason: written.reason ?? 'no rule separated this material' };
+    }
+    const after = await measure(input.rows, written.sift, want, input.ask);
+    if (!after.good) {
+        return { status: 'unfixable', before, after, diff: [], reason: `the rewritten rule is no better: ${after.note}` };
+    }
+    return { status: 'repaired', before, after, sift: written.sift, diff: describe(input.sift, written.sift) };
+}
+/** What a rule does to this material, and whether that is still what was asked for. */
+async function measure(rows, rule, want, ask) {
+    const result = sift(rows, rule);
+    const verdict = judgeSift(result, rows.length);
+    if (!verdict.good || !want) {
+        return {
+            sampled: rows.length,
+            kept: result.kept,
+            collisions: result.collisions.length,
+            good: verdict.good,
+            note: verdict.note,
+        };
+    }
+    // Coverage is not correctness. A rule can keep a healthy number of rows and keep the wrong ones —
+    // this is the only way to see that without a person reading every row.
+    const batch = result.rows.slice(0, 15);
+    const reply = await ask([
+        {
+            role: 'user',
+            content: `Task: ${want}\n\n` +
+                `A rule kept these as matching the task. Which do NOT match it?\n` +
+                `Answer with JSON and nothing else: {"wrong":[1,3]} — or {"wrong":[]} if they all match.\n\n` +
+                batch.map((row, index) => `${index + 1}. ${text(row).replace(/\s+/g, ' ').slice(0, 250)}`).join('\n'),
+        },
+    ]);
+    const wrong = wrongOnes(reply.content, batch.length);
+    // And the half that hides. A rule people wrote a year ago still keeps the wording it was written
+    // for; what changed is everything else people started writing, and that lands in the discard pile
+    // where nobody looks. Rot is far more often a rule that has stopped catching things than a rule
+    // that has started catching the wrong ones.
+    const discarded = result.discarded.slice(0, 15);
+    const second = discarded.length
+        ? await ask([
+            {
+                role: 'user',
+                content: `Task: ${want}\n\n` +
+                    `A rule threw these away as not matching the task. Which of them DO match it?\n` +
+                    `Answer with JSON and nothing else: {"wrong":[1,3]} — or {"wrong":[]} if none of them do.\n\n` +
+                    discarded.map((row, index) => `${index + 1}. ${text(row).replace(/\s+/g, ' ').slice(0, 250)}`).join('\n'),
+            },
+        ])
+        : { content: '{"wrong":[]}' };
+    const missed = wrongOnes(second.content, discarded.length);
+    const wrongShare = batch.length ? wrong / batch.length : 0;
+    const missedShare = discarded.length ? missed / discarded.length : 0;
+    const rotted = wrongShare > WRONG_ENOUGH || missedShare > WRONG_ENOUGH;
+    return {
+        sampled: rows.length,
+        kept: result.kept,
+        collisions: result.collisions.length,
+        checked: batch.length,
+        wrong,
+        missed,
+        missedOf: discarded.length,
+        good: !rotted,
+        note: rotted
+            ? missedShare > WRONG_ENOUGH
+                ? `${verdict.note}, but ${missed} of ${discarded.length} it threw away were what was asked for`
+                : `${verdict.note}, but ${wrong} of ${batch.length} checked were not what was asked`
+            : `${verdict.note}${wrong ? `, ${wrong} of ${batch.length} kept were off` : ''}` +
+                `${missed ? `, ${missed} of ${discarded.length} thrown away belonged` : ''}`,
+    };
+}
+function wrongOnes(answer, count) {
+    const start = answer.indexOf('{');
+    const end = answer.lastIndexOf('}');
+    if (start === -1 || end <= start)
+        return 0; // it did not answer in the form asked for; assume nothing
+    try {
+        const parsed = JSON.parse(answer.slice(start, end + 1));
+        if (!Array.isArray(parsed.wrong))
+            return 0;
+        return new Set(parsed.wrong.map(Number).filter((number) => number >= 1 && number <= count)).size;
+    }
+    catch {
+        return 0;
+    }
+}
+function text(row) {
+    return Object.values(row)
+        .filter((value) => typeof value === 'string')
+        .join('  ');
+}
+/** Pattern by pattern, so a person can see what the model decided to change and disagree with it. */
+function describe(was, now) {
+    const lines = [];
+    const compare = (title, before = [], after = []) => {
+        for (const pattern of after.filter((one) => !before.includes(one)))
+            lines.push(`+ ${title}: ${pattern}`);
+        for (const pattern of before.filter((one) => !after.includes(one)))
+            lines.push(`− ${title}: ${pattern}`);
+    };
+    compare('keep', was.keep, now.keep);
+    compare('drop', was.drop, now.drop);
+    if (Boolean(was.judge) !== Boolean(now.judge)) {
+        lines.push(now.judge ? '+ a model now looks at the edge cases' : '− the edge is no longer put to a model');
+    }
+    return lines;
+}

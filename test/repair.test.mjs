@@ -94,16 +94,47 @@ test('a dead field is replaced by role and the column keeps its name', async () 
   assert.ok(result.diff.some((line) => line.includes('field "title": h5.title → h3')));
 });
 
-test('a field with no replacement is dropped out loud, not silently', async () => {
+test('a required field with no replacement makes it a refusal, not a repair', async () => {
   const site = new FakeSite({
     rows: '.old-card',
     values: { a: '/job' },
     candidates: [{ selector: '.old-card', count: 6, fields: [{ role: 'link', selector: 'a' }] }],
   });
   const result = await repairScenario(site, robot);
-  assert.equal(result.status, 'repaired');
-  assert.ok(!('title' in result.scenario.list.fields));
+
+  // Rows came back — six of them — and that used to be enough. It is not: what came back has no
+  // title, and a scraper that lost what it was built to collect is a different scraper.
+  assert.equal(result.status, 'unfixable');
+  assert.match(result.reason, /"title"/);
   assert.ok(result.diff.some((line) => line.includes('field "title"') && line.includes('dropped')));
+});
+
+test('an optional field the page no longer shows does not block the repair', async () => {
+  const withExtra = slow(buildScenario({
+    name: 'jobs',
+    url: 'https://example.com/list',
+    rows: '.old-card',
+    fields: {
+      title: { type: 'text', selector: 'h5.title' },
+      url: { type: 'attr', selector: 'a', attr: 'href', absolute: true },
+      pay: { type: 'text', selector: '.salary', optional: true },
+    },
+    pagination: { type: 'none' },
+    minRowsPerPage: 2,
+  }));
+
+  const site = new FakeSite({
+    rows: '.new-card',
+    values: { h3: 'A job', a: '/job' },
+    candidates: [{ selector: '.new-card', count: 6, fields: [{ role: 'title', selector: 'h3' }, { role: 'link', selector: 'a' }] }],
+  });
+  const result = await repairScenario(site, withExtra);
+
+  // An optional column coming back empty is not proof its selector died — the site may simply have
+  // nothing to put there today. So it is left as it is, and it is not a reason to refuse the repair.
+  assert.equal(result.status, 'repaired');
+  assert.ok(result.scenario.list.fields.title, 'what the scraper was built to collect is still collected');
+  assert.equal(result.scenario.list.fields.title.selector, 'h3', 'with the selector the page has now');
 });
 
 test('a page with nothing on it is unfixable, and says why', async () => {

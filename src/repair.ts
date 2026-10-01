@@ -75,6 +75,29 @@ export async function repairScenario(
     return { status: 'unfixable', before, diff, reason: `no field survived on "${candidate.rows}" and nothing on the page replaces them` };
   }
 
+  /**
+   * A repair may lose an optional field; it may not lose a required one.
+   *
+   * What comes back otherwise is not a repaired scraper but a different one, and the difference is
+   * invisible in the only number anybody reads: rows. Measured the expensive way — a board changed its
+   * markup, the rebuild matched the four blocks of the footer menu, dropped the title because nothing
+   * on the page looked like one, and reported four rows where there were none. Saved, scheduled, and
+   * on its way into somebody's vacancy feed as four adverts named nothing.
+   */
+  const lost = Object.entries(scenario.list.fields)
+    .filter(([name, rule]) => !rule.optional && !fields[name])
+    .map(([name]) => name);
+  if (lost.length > 0) {
+    return {
+      status: 'unfixable',
+      before,
+      diff,
+      reason:
+        `"${candidate.rows}" gives rows, but nothing on the page replaces ${lost.map((name) => `"${name}"`).join(', ')} — ` +
+        'a scraper that lost what it was built to collect is a different scraper, not a repaired one',
+    };
+  }
+
   // Pagination: only touched if the old control is gone.
   let pagination = scenario.pagination;
   if (pagination.type === 'link' || pagination.type === 'button') {

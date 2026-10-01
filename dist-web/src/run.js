@@ -1,0 +1,482 @@
+import { sameRowInThisRun } from './memory.js';
+import { asExtractResult, EXTRACTOR_SOURCE, ExtractionError } from './extractor.js';
+import { applyRules } from './rules.js';
+export async function runScenario(page, scenario, options = {}) {
+    const rows = [];
+    // What has already been collected in THIS run. A pager that shifts under you shows page one's last
+    // rows again on page two; a site with a pinned posting shows it on every page. Both hand the same
+    // thing over twice, and a table with the same vacancy eleven times is a table nobody trusts.
+    const collected = new Set();
+    // On unless the scraper says otherwise. Off is for a source where identical rows are genuinely
+    // different things — a price tick, a sensor reading, the same line meaning something new each time.
+    const dedupe = scenario.dedupe !== false;
+    let duplicates = 0;
+    let pagesVisited = 0;
+    let lastExtract = { rows: [], blocksSeen: 0, missing: {} };
+    let paginationStopped;
+    // Rows deepened so far, and the pages already opened: both belong to the walk, not to one page of
+    // it. A list repeats an address across pages, and the budget is spent by the walk as a whole.
+    let visited = 0;
+    let knownAlready = 0;
+    let opened = 0;
+    const openedPages = new Map();
+    const rulesApplied = [];
+    try {
+        await page.goto(scenario.url);
+    }
+    catch (error) {
+        return {
+            status: 'broken',
+            rows,
+            pagesVisited,
+            reason: `could not open ${scenario.url}: ${firstLine(error)}`,
+        };
+    }
+    const maxPages = pageBudget(scenario.pagination);
+    // What each page held, so a pager that loops back is noticed. Sites answer a page number past the
+    // end with the first page rather than with an error, and collecting it again would inflate the
+    // result with duplicates that look like real rows.
+    const seenPages = new Set();
+    for (let pageIndex = 0; pageIndex < maxPages; pageIndex++) {
+        const rendered = await waitForContent(page, scenario.wait);
+        if (!rendered && pageIndex === 0) {
+            // "Nothing rendered" and "a door meant for a person" look identical from here and mean opposite
+            // things: one is a rotted selector, the other is a page nobody's selectors will ever match.
+            const door = await challengeSeen(page);
+            return {
+                status: 'broken',
+                rows,
+                pagesVisited,
+                reason: door
+                    ? `${door} — this is a door meant for a person, not the list. Open it yourself once, and the profile keeps what the site leaves behind.`
+                    : `page never rendered: fewer than ${scenario.wait.minCount} of "${scenario.wait.selector}" after ${scenario.wait.timeoutMs}ms`,
+                ...(door ? { challenge: true } : {}),
+                evidence: { blocksSeen: 0, missingFields: {}, url: await page.currentUrl() },
+                rulesApplied,
+            };
+        }
+        if (options.rules?.length) {
+            rulesApplied.push(...(await applyRules(page, options.rules)));
+        }
+        try {
+            lastExtract = await scrapeCurrentPage(page, scenario);
+        }
+        catch (error) {
+            if (error instanceof ExtractionError) {
+                return {
+                    status: 'broken',
+                    rows,
+                    pagesVisited,
+                    reason: error.message,
+                    evidence: { blocksSeen: 0, missingFields: {}, url: await page.currentUrl() },
+                    rulesApplied,
+                };
+            }
+            throw error;
+        }
+        if (scenario.pagination.type !== 'scroll') {
+            const fingerprint = JSON.stringify(lastExtract.rows.slice(0, 3));
+            if (seenPages.has(fingerprint)) {
+                paginationStopped = 'the pager came back to a page already read';
+                break;
+            }
+            seenPages.add(fingerprint);
+        }
+        const fresh = [];
+        for (const row of lastExtract.rows) {
+            // The memory's notion of "the same row", minus its tolerance for bumps: nobody bumped a posting
+            // in the three seconds between page one and page two, so two rows differing by their last word
+            // are two rows.
+            // A scrolling list always re-reads rows it has already handed over — the rows on screen did not
+            // move just because the page did. And a list that recycles its nodes, which every long feed now
+            // does, throws away what scrolled off: whatever a round saw has to be kept as it is seen, not
+            // gathered at the end from a document that no longer holds it. So a scroll always collapses
+            // repeats, whether or not the scenario asked for it.
+            const collapse = dedupe || scenario.pagination.type === 'scroll';
+            const key = collapse ? sameRowInThisRun(row) : undefined;
+            if (key && collected.has(key)) {
+                duplicates++;
+                continue;
+            }
+            if (key)
+                collected.add(key);
+            rows.push(row);
+            fresh.push(row);
+        }
+        pagesVisited++;
+        // What the list could not carry — the whole text, the photographs — is one page deeper, and it is
+        // fetched now rather than after the last page. Two reasons, and the second is the important one:
+        // a row handed on before it is whole is a row somebody has to guess about, and a walk that stops
+        // half way should still leave behind pages that are finished rather than pages that are started.
+        if (scenario.detail && fresh.length > 0) {
+            try {
+                const walked = await walkIntoRows(page, scenario, fresh, options.rules ?? [], rulesApplied, {
+                    ...(options.worthOpening ? { worthOpening: options.worthOpening } : {}),
+                    opened,
+                    seen: openedPages,
+                });
+                visited += walked.opened;
+                knownAlready += walked.skipped;
+                opened += walked.opened;
+            }
+            catch (error) {
+                paginationStopped = paginationStopped ?? `the walk into rows stopped: ${firstLine(error)}`;
+            }
+        }
+        // Said out loud as it goes: the catalogue is what the source holds, and it should not depend on
+        // the walk surviving to its end.
+        if (options.onPage && fresh.length > 0)
+            await options.onPage(fresh);
+        if (lastExtract.rows.length < scenario.expect.minRowsPerPage)
+            break;
+        if (pageIndex === maxPages - 1)
+            break; // budget spent — do not knock on a page we will not read
+        // The browser can refuse to turn the page for reasons that have nothing to do with our rows:
+        // an overlay swallowing the click, a control that moved. That ends the walk, it does not
+        // throw away what we already collected — but it is never silent either.
+        try {
+            if (!(await goToNextPage(page, scenario, lastExtract.rows)))
+                break;
+        }
+        catch (error) {
+            paginationStopped = firstLine(error);
+            break;
+        }
+    }
+    const evidence = {
+        blocksSeen: lastExtract.blocksSeen,
+        missingFields: lastExtract.missing,
+        url: await page.currentUrl(),
+        ...(scenario.detail ? { rowsOpened: visited } : {}),
+        ...(knownAlready ? { rowsKnownAlready: knownAlready } : {}),
+        // Said out loud rather than quietly dropped: a walk that keeps handing back the same rows is a
+        // pager going nowhere, and the count is how you notice.
+        ...(duplicates > 0 ? { duplicates } : {}),
+    };
+    if (rows.length > 0) {
+        // Rows are not the same thing as data. A required column empty in every single row means that
+        // column rotted, and the robot is quietly returning less than it promises — which is the exact
+        // failure this project exists to stop. Partial rows are still handed back; the verdict is not.
+        const rotted = [...Object.entries(scenario.list.fields), ...Object.entries(scenario.detail?.fields ?? {})]
+            .filter(([, rule]) => !rule.optional)
+            .map(([field]) => field)
+            .filter((field) => rows.every((row) => row[field] === null || row[field] === undefined));
+        if (rotted.length > 0) {
+            return {
+                status: 'broken',
+                rows,
+                pagesVisited,
+                reason: `${rotted.map((field) => `"${field}"`).join(', ')} came back empty in all ${rows.length} rows — the field selector no longer matches`,
+                evidence,
+                rulesApplied,
+            };
+        }
+        const why = [
+            paginationStopped ? `walk stopped early: ${paginationStopped}` : undefined,
+            duplicates > 0 ? `${duplicates} duplicate row(s) dropped along the way` : undefined,
+        ].filter(Boolean);
+        const reason = why.length ? why.join('; ') : undefined;
+        return { status: 'ok', rows, pagesVisited, reason, evidence, rulesApplied };
+    }
+    if (lastExtract.blocksSeen > 0) {
+        return {
+            status: 'broken',
+            rows,
+            pagesVisited,
+            reason: `"${scenario.list.rows}" matched ${lastExtract.blocksSeen} blocks but every field came back empty — field selectors have rotted`,
+            evidence,
+            rulesApplied,
+        };
+    }
+    return {
+        status: 'empty',
+        rows,
+        pagesVisited,
+        reason: `page rendered but "${scenario.list.rows}" matched nothing`,
+        evidence,
+        rulesApplied,
+    };
+}
+/**
+ * Wait until one of the fields we are about to read is actually there.
+ *
+ * Any of them, not all: a field marked optional may legitimately be missing, and waiting for the
+ * whole set would spend the timeout on every page that lacks one. A field with no selector reads the
+ * page itself and so is always present — such a rule is not worth waiting for and is skipped.
+ */
+async function waitForAny(page, fields, timeoutMs) {
+    const selectors = Object.values(fields)
+        .map((field) => field.selector)
+        .filter((selector) => Boolean(selector));
+    if (selectors.length === 0)
+        return;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const there = await page.evaluate(`(list) => list.some((selector) => { try { return Boolean(document.querySelector(selector)); } catch (e) { return false; } })`, selectors);
+        if (there)
+            return;
+        await page.waitMs(250);
+    }
+}
+/** Wait for the real DOM, not for a challenge page. Returns false on timeout; the caller decides what that means. */
+export async function waitForContent(page, wait) {
+    const deadline = Date.now() + wait.timeoutMs;
+    while (Date.now() < deadline) {
+        const count = await page.evaluate(`(selector) => document.querySelectorAll(selector).length`, wait.selector);
+        if (count >= wait.minCount) {
+            await page.waitMs(wait.settleMs);
+            return true;
+        }
+        await page.waitMs(250);
+    }
+    return false;
+}
+/** Every page goes through here, and the extractor travels with the call. There is no second path. */
+/**
+ * Open each row and take what the list could not hold.
+ *
+ * Bounded on purpose: every row is a page load, and forty of them is a minute where the list alone was
+ * a second. Rows that share an address are opened once — a list often repeats the same posting — and a
+ * row whose page will not open keeps what it already had rather than losing the run for everyone.
+ */
+async function walkIntoRows(page, scenario, rows, rules, rulesApplied, 
+/** What the walk has spent so far, and what it has already opened — both outlive one page. */
+sofar) {
+    const detail = scenario.detail;
+    const { seen, worthOpening } = sofar;
+    let opened = 0;
+    let skipped = 0;
+    for (const row of rows) {
+        const where = row[detail.follow];
+        if (!where || !/^https?:\/\//.test(where))
+            continue;
+        // A row that has been handed over before is not read again. The budget below is then spent on the
+        // rows that are actually new, which on a list read every few hours is the few at the top — the
+        // difference between a pass that costs twelve minutes and one that costs one.
+        if (worthOpening && !worthOpening(row)) {
+            skipped += 1;
+            continue;
+        }
+        const already = seen.get(where);
+        if (already) {
+            Object.assign(row, already);
+            continue;
+        }
+        if (sofar.opened + opened >= detail.maxRows)
+            break;
+        try {
+            await page.goto(where);
+            await page.waitMs(scenario.pace ?? 400);
+            /**
+             * Wait for the thing we came for, not for a number of milliseconds.
+             *
+             * A page one level in is a page like any other: on a site drawn by its own code, the text
+             * arrives a second or two after the address does. A fixed pause is a bet on how fast somebody
+             * else's server is today, and a lost bet is silent — the field comes back empty and reads as a
+             * selector that has rotted. Measured on a live board: the same pages that gave nothing at four
+             * hundred milliseconds gave eight hundred to twelve hundred characters when waited for.
+             */
+            await waitForAny(page, detail.fields, detail.waitMs ?? 8000);
+            // The same site, so the same rules: a page deeper in is where a "see more" hides the description
+            // and a banner covers the rest. Firing them only on the first page reads half of every posting.
+            if (rules.length)
+                rulesApplied.push(...(await applyRules(page, rules)));
+            // One block — the page itself — read with the same extractor the list uses.
+            const raw = await page.evaluate(EXTRACTOR_SOURCE, { rows: 'html', fields: detail.fields });
+            const found = asExtractResult(raw, where).rows[0] ?? {};
+            seen.set(where, found);
+            Object.assign(row, found);
+        }
+        catch {
+            // A page that will not open leaves the row as the list had it, which is still an honest row.
+            seen.set(where, {});
+        }
+        opened++;
+    }
+    return { opened, skipped };
+}
+export async function scrapeCurrentPage(page, scenario) {
+    const raw = await page.evaluate(EXTRACTOR_SOURCE, scenario.list);
+    return asExtractResult(raw, await page.currentUrl());
+}
+/**
+ * One screen further down whatever is actually scrolling.
+ *
+ * Two things the old "scroll the window to the bottom" got wrong on any modern feed. The page itself
+ * often does not scroll — the rows live in a box with its own scrollbar, and the window stays exactly
+ * where it was. And jumping to the bottom skips everything in between, which is free on a list that
+ * only grows and ruinous on one that recycles its nodes: the rows passed over are gone from the
+ * document before anyone read them. So it moves by a screen at a time, and reports whether it moved.
+ */
+const SCROLL_A_SCREEN = `(selector) => {
+  const row = document.querySelector(selector);
+  let box = row ? row.parentElement : null;
+  while (box) {
+    const flow = getComputedStyle(box).overflowY;
+    if ((flow === 'auto' || flow === 'scroll') && box.scrollHeight > box.clientHeight + 40) break;
+    box = box.parentElement;
+  }
+  if (box) {
+    const was = box.scrollTop;
+    box.scrollTop = was + Math.round(box.clientHeight * 0.8);
+    return box.scrollTop > was;
+  }
+  const was = window.scrollY;
+  window.scrollBy(0, Math.round(window.innerHeight * 0.8));
+  return window.scrollY > was;
+}`;
+/**
+ * Turning the page is not the same as the page having turned. On a client-rendered site the click
+ * changes nothing the browser calls a navigation, so we watch the rows themselves: same rows after
+ * the click means we never moved, and collecting them twice would be worse than stopping.
+ */
+async function goToNextPage(page, scenario, lastRows) {
+    const pagination = scenario.pagination;
+    if (pagination.type === 'none')
+        return false;
+    if (pagination.type === 'param') {
+        const cursor = cursorFrom(lastRows, pagination.from, pagination.pattern, pagination.pick);
+        if (!cursor)
+            return false;
+        const next = new URL(await page.currentUrl());
+        if (next.searchParams.get(pagination.param) === cursor)
+            return false; // the cursor stopped moving
+        next.searchParams.set(pagination.param, cursor);
+        const before = await rowsSignature(page, scenario.list.rows);
+        await page.goto(next.href);
+        await page.waitMs(scenario.pace ?? 1000);
+        return (await rowsSignature(page, scenario.list.rows)) !== before;
+    }
+    if (pagination.type === 'number') {
+        const start = pagination.start ?? 2;
+        const step = pagination.step ?? 1;
+        const here = new URL(await page.currentUrl());
+        let next;
+        if (pagination.path) {
+            // The number is part of the address. Page one is the address as written, so the number to ask
+            // for is read back out of where we are — and where we are, on page one, has no number in it.
+            const shape = pagination.path.replace('{n}', '(\\d+)');
+            const found = new RegExp(`${shape}/?$`).exec(here.pathname);
+            const current = found ? Number(found[1]) : start - step;
+            const base = found ? here.pathname.slice(0, found.index) : here.pathname.replace(/\/$/, '');
+            next = new URL(here.href);
+            next.pathname = base + pagination.path.replace('{n}', String(current + step));
+        }
+        else {
+            next = new URL(here.href);
+            const current = Number(next.searchParams.get(pagination.param) ?? start - step);
+            next.searchParams.set(pagination.param, String(current + step));
+        }
+        // A page number past the end is usually answered with the first page again rather than with an
+        // error, so the rows themselves decide whether we actually moved.
+        const before = await rowsSignature(page, scenario.list.rows);
+        await page.goto(next.href);
+        await page.waitMs(1000);
+        return (await rowsSignature(page, scenario.list.rows)) !== before;
+    }
+    if (pagination.type === 'scroll') {
+        const moved = await page.evaluate(SCROLL_A_SCREEN, scenario.list.rows);
+        await page.waitMs(pagination.settleMs);
+        return moved;
+    }
+    const present = await page.evaluate(`(selector) => Boolean(document.querySelector(selector))`, pagination.next);
+    if (!present)
+        return false;
+    const before = await rowsSignature(page, scenario.list.rows);
+    await page.click(pagination.next);
+    const deadline = Date.now() + PAGE_TURN_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+        await page.waitMs(250);
+        if ((await rowsSignature(page, scenario.list.rows)) !== before) {
+            // The page has turned; the pace is what we owe the source before reading the next one.
+            if (scenario.pace)
+                await page.waitMs(scenario.pace);
+            return true;
+        }
+    }
+    throw new Error(`the page did not change within ${PAGE_TURN_TIMEOUT_MS}ms after clicking "${pagination.next}"`);
+}
+const PAGE_TURN_TIMEOUT_MS = 10_000;
+/** The same words look.ts watches for, asked of a page that gave us nothing. */
+export async function challengeSeen(page) {
+    const seen = await page
+        .evaluate(`() => {
+        const text = (document.title + ' ' + (document.body ? document.body.innerText : '')).slice(0, 400);
+        const wall = /just a moment|checking your browser|verify you are human|confirm that you are human|if you are human|i'm not a robot|antibot|turnstile|cf-challenge|attention required|подтвердите, что вы человек|я не робот|проверка браузера/i;
+        if (!wall.test(text) && !document.querySelector('iframe[src*="challenges.cloudflare.com"], iframe[src*="hcaptcha.com"], iframe[src*="recaptcha"], #challenge-form')) return null;
+        return (document.title || text).trim().slice(0, 90) || 'an anti-bot check';
+      }`)
+        .catch(() => null);
+    return seen ?? undefined;
+}
+/**
+ * Cheap fingerprint of what is on screen, used to tell a page that turned from one that did not.
+ *
+ * Taken from across the page rather than off the top of it, and that is the whole point: boards pin
+ * promoted listings to the head of every page, so the first rows are identical on page one and page
+ * eleven. A fingerprint of those says "we never moved" and stops the walk on its second page — a
+ * scraper that reports a healthy run and returns a thirtieth of the board.
+ */
+export function signatureOf(count, texts) {
+    return `${count}|${texts.map((one) => one.replace(/\s+/g, ' ').trim().slice(0, 60)).join('|')}`;
+}
+/** Which rows to look at: the first, the middle and the last. Only the first are ever pinned. */
+export async function rowsSignature(page, rowsSelector) {
+    const seen = await page.evaluate(`(selector) => {
+       const blocks = Array.from(document.querySelectorAll(selector));
+       const at = [0, Math.floor(blocks.length / 2), blocks.length - 1, blocks.length - 2];
+       const texts = at
+         .filter((n) => n >= 0 && n < blocks.length)
+         .map((n) => (blocks[n].textContent || ''));
+       return { count: blocks.length, texts };
+     }`, rowsSelector);
+    return signatureOf(seen.count, seen.texts);
+}
+/** Browser errors arrive as multi-line call logs. A status line wants the first line of it. */
+function firstLine(error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.split('\n')[0].trim();
+}
+/**
+ * The cursor is whatever the last row carries — usually the id at the end of its own link. The column
+ * it lives in is named by whoever built the scraper, in their own language, so a rule
+ * written for a whole site cannot depend on that name: "*" means "find it".
+ */
+export function cursorFrom(rows, field, pattern, pick = 'last') {
+    if (rows.length === 0)
+        return undefined;
+    const expression = new RegExp(pattern ?? '(\\d+)\\s*$');
+    const take = (value) => (value ? expression.exec(value)?.[1] : undefined);
+    const fromRow = (row) => {
+        if (field !== '*') {
+            const named = take(row[field]);
+            if (named)
+                return named;
+        }
+        // Links first: an id at the end of a URL is a cursor, an id at the end of a price is not.
+        const values = Object.values(row).filter((value) => typeof value === 'string');
+        for (const value of values.filter((v) => v.includes('/'))) {
+            const found = take(value);
+            if (found)
+                return found;
+        }
+        return undefined;
+    };
+    if (pick === 'last')
+        return fromRow(rows[rows.length - 1]);
+    // Walking backwards through an archive, the next page starts before the OLDEST item on this one —
+    // and the oldest is not always the last row in document order.
+    const numbers = rows.map(fromRow).filter((value) => Boolean(value)).map(Number).filter(Number.isFinite);
+    if (numbers.length === 0)
+        return undefined;
+    return String(pick === 'min' ? Math.min(...numbers) : Math.max(...numbers));
+}
+function pageBudget(pagination) {
+    if (pagination.type === 'none')
+        return 1;
+    if (pagination.type === 'param' || pagination.type === 'number')
+        return pagination.maxPages;
+    if (pagination.type === 'scroll')
+        return pagination.maxRounds;
+    return pagination.maxPages;
+}
