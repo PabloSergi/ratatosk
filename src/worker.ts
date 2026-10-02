@@ -26,6 +26,18 @@ import { claimDue } from './schedule.js';
  */
 const TICK_MS = Number(process.env['RATATOSK_TICK_MS'] ?? 30_000);
 
+/**
+ * How many runs may be in flight at once.
+ *
+ * One was right while everything ran daily. It stops being right the moment one source is read every
+ * ten minutes and another takes half an hour to walk: the ten-minute look waits behind the half-hour
+ * walk, and "every ten minutes" quietly becomes "whenever the big one finishes". Measured on a live
+ * queue — a vacancy board's turn sat behind a property crawl.
+ *
+ * The same scraper still never runs twice at once: that is the lock's job, and it is unchanged.
+ */
+const HANDS = Math.max(1, Number(process.env['RATATOSK_WORKERS'] ?? 1));
+
 let stopping = false;
 
 async function tick(): Promise<void> {
@@ -108,7 +120,8 @@ async function main(): Promise<void> {
     });
   }
 
-  await Promise.all([ticking, work(rules)]);
+  log('info', 'worker hands', { hands: HANDS });
+  await Promise.all([ticking, ...Array.from({ length: HANDS }, () => work(rules))]);
   await Promise.all([closeQueue(), closeDb()]);
 }
 

@@ -140,8 +140,11 @@ services:
       RATATOSK_REDIS: redis://queue:6379
       RATATOSK_LOG: ${RATATOSK_LOG:-info}
       RATATOSK_MODEL: ${RATATOSK_MODEL:-qwen/qwen3.7-flash}
-      # One browser at a time here: this container exists to be steady, not fast.
-      RATATOSK_MAX_BROWSERS: ${RATATOSK_WORKER_BROWSERS:-1}
+      # Several runs at once, because the schedules no longer share a rhythm: a source read every ten
+      # minutes must not wait behind one that takes half an hour. The per-scraper lock still keeps any
+      # one of them from running twice.
+      RATATOSK_WORKERS: ${RATATOSK_WORKERS:-3}
+      RATATOSK_MAX_BROWSERS: ${RATATOSK_WORKER_BROWSERS:-3}
       RATATOSK_PROFILES: /app/profiles
       RATATOSK_BROWSER_HOST: http://browser:5546
       RATATOSK_HISTORY: /app/history
