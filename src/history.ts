@@ -26,6 +26,8 @@ export interface Run {
   door?: boolean;
   /** Nothing new, rather than nothing at all: the scraper worked and had already handed it over. */
   quiet?: boolean;
+  /** A look at the first page or two between full walks, so "two rows" is not read as a collapse. */
+  quick?: boolean;
 }
 
 /** How many lines a file keeps. Old enough to show a trend, small enough to read in one gulp. */

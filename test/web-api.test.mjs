@@ -579,3 +579,24 @@ test('a scraper that was deleted stops being counted as one that needs looking a
   assert.ok(named.includes('standing'), 'a scraper that exists is still judged');
   assert.ok(!named.includes('long-gone'), 'and one that does not is not asked about');
 });
+
+test('the harvest says where to carry on from, so nothing is asked for twice or missed', async () => {
+  const { keepResult } = await import('../src/results.ts');
+  const kept = { status: 'ok', pagesVisited: 1, rows: [{ title: 'a vacancy', link: 'https://board.test/1' }] };
+
+  // Two runs, stored at known moments. The door filters by when Ratatosk wrote the run down — not by
+  // when the posting was published, which is a date somebody else controls and often does not set.
+  process.env.RATATOSK_RESULTS = join(home, 'results');
+  await keepResult((await call('/api/auth/me', {})).body.user.id, 'board', { at: '2026-10-01T10:00:00.000Z', ...kept });
+  await keepResult((await call('/api/auth/me', {})).body.user.id, 'board', { at: '2026-10-01T10:10:00.000Z', ...kept });
+
+  const first = await call('/api/harvest', { since: '2026-10-01T09:00:00.000Z' });
+  assert.equal(first.body.rows.length, 2);
+  assert.equal(first.body.nextSince, '2026-10-01T10:10:00.000Z', 'the newest run handed over, not the clock');
+
+  // Carrying on from the cursor brings nothing new, and the cursor stands rather than drifting to now:
+  // a run finishing this second is stamped before "now" and would be stepped over for ever.
+  const again = await call('/api/harvest', { since: first.body.nextSince });
+  assert.equal(again.body.rows.length, 0);
+  assert.equal(again.body.nextSince, first.body.nextSince);
+});

@@ -223,6 +223,24 @@ would be to open everything or nothing.
 
 `mode: "all"` turns this off by itself: a run that hands over repeats has to hand them over whole.
 
+## `quick`
+
+```json
+{ "quick": { "maxPages": 1, "fullEveryHours": 24 } }
+```
+
+How deep a frequent look goes. Off unless you say it, and it changes nothing about how often the
+scraper runs — that is the schedule's business. What it says is: when the whole walk was done less
+than `fullEveryHours` ago, read only the first `maxPages` and stop.
+
+A source worth reading every ten minutes is not worth walking end to end every ten minutes: what
+arrived since the last look is on the first page, and the pages behind it cost the site something and
+us nothing. The full walk still happens on its own clock, and it is what keeps
+[`catalogue`](#catalogue) honest and catches what the first page quietly stopped showing.
+
+Runs say which they were: a quick look is marked in the history, so "two rows" after "four hundred"
+reads as a glance rather than a collapse.
+
 ## `catalogue`
 
 ```json

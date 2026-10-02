@@ -7,7 +7,7 @@ import { log } from './log.js';
 import { memoryFileFor, readMemory, writeMemory, type Seen } from './memory.js';
 import { findProxy, proxiesFileFor, toRunningBrowser } from './proxies.js';
 import { robotsDirFor } from './auth.js';
-import { finishedPass, keepSeen } from './catalogue.js';
+import { finishedPass, keepSeen, lastPassOf } from './catalogue.js';
 import { isBrowserRobot, loadRobot } from './robots.js';
 import { keepResult } from './results.js';
 import type { RunResult } from './run.js';
@@ -109,13 +109,30 @@ export async function runForAccount(userId: string, name: string, options: RunOp
    * started. Measured the expensive way: a dead screen in the browsers' container took two days to
    * notice, because every run since had ended here.
    */
+  /**
+   * A quick look, or the whole thing.
+   *
+   * A source worth reading every ten minutes is not worth walking from end to end every ten minutes:
+   * what arrived since the last look is on the first page, and the pages behind it cost the site
+   * something and us nothing. So a scraper may say how deep a frequent look goes, and how often the
+   * whole walk is owed anyway — the full one is what keeps "what the source holds" honest, and what
+   * catches anything the first page quietly stopped showing.
+   */
+  const quick = (robot as { quick?: { maxPages?: number; fullEveryHours?: number } }).quick;
+  const lastFull = quick ? await lastPassOf(userId, robot.name) : undefined;
+  const fullIsDue =
+    !quick ||
+    !lastFull ||
+    Date.now() - Date.parse(lastFull) >= (quick.fullEveryHours ?? 24) * 60 * 60 * 1000;
+  const maxPages = options.maxPages ?? (fullIsDue ? undefined : (quick.maxPages ?? 1));
+
   let run: RunResult;
   try {
     run = await options.pool.use(poolKey(userId, isBrowserRobot(robot) ? robot.proxy : undefined), (session) =>
       runRobot(robot, {
         page: async () => session.page,
         rules: options.rules,
-        ...(options.maxPages ? { maxPages: options.maxPages } : {}),
+        ...(maxPages ? { maxPages } : {}),
         telegramSession,
         ...(ask ? { ask } : {}),
         ...(memory ? { memory } : {}),
@@ -134,7 +151,7 @@ export async function runForAccount(userId: string, name: string, options: RunOp
   // A walk that reached its end, said so. The catalogue is written as the walk goes, so without this
   // there is no way to tell a source of thirty thousand from the first two pages of one — and "what
   // has gone" is exactly that difference. A broken run says nothing: it did not finish.
-  if (catalogued && run.status !== 'broken') await finishedPass(userId, robot.name, startedAt).catch(() => undefined);
+  if (fullIsDue && run.status !== 'broken') await finishedPass(userId, robot.name, startedAt).catch(() => undefined);
 
   // One timestamp for both, because they are two halves of the same event: the line in the history
   // and the rows it is about have to be findable from each other.
@@ -150,6 +167,7 @@ export async function runForAccount(userId: string, name: string, options: RunOp
     ...(run.reason ? { why: run.reason.slice(0, 200) } : {}),
     ...(run.challenge ? { door: true } : {}),
     ...(run.quiet ? { quiet: true } : {}),
+    ...(maxPages && !fullIsDue ? { quick: true } : {}),
     ...(isBrowserRobot(robot) ? { proxy: robot.proxy ?? 'direct' } : {}),
   });
 

@@ -804,9 +804,20 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     const kinds = new Map((await listRobots(robotsDirFor(user.id))).map((robot) => [robot.name, robot.kind]));
     const runs = await harvestSince(user.id, since);
 
+    /**
+     * Where to carry on from, said by the answer rather than guessed by the caller.
+     *
+     * The newest run in this answer, not the clock: a run that finishes while this request is being
+     * served is stamped before "now" and would be stepped over by anyone who took the clock as their
+     * next `since`. Asking again from the newest row that was actually handed over can repeat a row,
+     * and repeating is free — the far side files vacancies by where they came from.
+     */
+    const newest = runs.reduce((latest, run) => (run.at > latest ? run.at : latest), since);
+
     return {
       since,
       until: new Date().toISOString(),
+      nextSince: newest,
       rows: runs.flatMap((run) =>
         run.rows.map((fields) => ({ scraper: run.scraper, kind: kinds.get(run.scraper) ?? 'web', at: run.at, fields })),
       ),

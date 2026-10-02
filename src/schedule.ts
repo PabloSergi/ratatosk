@@ -72,7 +72,17 @@ export async function schedulesFor(userId: string): Promise<Schedule[]> {
 export async function claimDue(limit = 5): Promise<Array<{ userId: string; scraper: string }>> {
   const pool = await db();
   const { rows } = await pool.query<{ user_id: string; scraper: string }>(
-    `UPDATE schedules SET next_at = now() + make_interval(mins => every_minutes), last_at = now()
+    /**
+     * The next time, give or take a tenth.
+     *
+     * Five scrapers set to the same interval fire together for ever, which is a burst of traffic at a
+     * predictable minute — the shape of a thing that is not a person. The jitter costs nothing and
+     * scatters them.
+     */
+    `UPDATE schedules
+     SET next_at = now() + make_interval(mins => every_minutes)
+                 + make_interval(secs => (random() - 0.5) * every_minutes * 12),
+         last_at = now()
      WHERE (user_id, scraper) IN (
        SELECT user_id, scraper FROM schedules
        WHERE paused = false AND next_at <= now()
