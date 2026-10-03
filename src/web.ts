@@ -628,7 +628,10 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     await forgetResults(user.id, name).catch(() => undefined);
     if (usingDatabase()) await forgetSchedule(user.id, name).catch(() => undefined);
 
-    if (isTelegramRobot(robot)) return { deleted: name, removed, forgotten: 0 };
+    // Only a robot that had a browser has a profile to clean up. Asked as "is it a browser robot"
+    // rather than "is it Telegram": a feed and a JSON source have no profile either, and starting a
+    // browser to forget cookies for a site nobody logged into would log the account out of it.
+    if (!isBrowserRobot(robot)) return { deleted: name, removed, forgotten: 0 };
 
     const host = new URL(robot.url).hostname;
     const stillRead = (await listRobots(dir)).some(
