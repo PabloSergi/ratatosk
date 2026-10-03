@@ -6,6 +6,8 @@ import { identity, identityOfMessage, meet, type Remember, type Row, type Seen }
 import { fieldsOf, judgeSift, sift, type Sift } from './sift.js';
 import { isTelegramRobot, runTelegramRobot } from './telegram.js';
 import { asker, deepen, isApiRobot, runApiRobot, type AskJson } from './api.js';
+import { isFeedRobot, runFeedRobot } from './feed.js';
+import { direct, type Get } from './through.js';
 import { maskRow } from './mask.js';
 
 /**
@@ -35,6 +37,8 @@ export async function runRobot(
     telegramSession?: string;
     /** How to put a question to a JSON feed. Injected so a test never reaches the network. */
     askJson?: AskJson;
+    /** How a feed is fetched — named so a robot that needs a proxy can be given one. */
+    get?: Get;
     /**
      * Somewhere to write down everything this pass saw, before the memory decides what is new.
      * That is what a catalogue is made of, and it cannot be reconstructed from what was handed on.
@@ -114,6 +118,28 @@ export async function runRobot(
       status: 'ok',
       rows: withoutNumbers(robot, deeper.rows),
       pagesVisited: feed.calls + deeper.calls,
+      ...(why ? { reason: why } : {}),
+    };
+  }
+
+  if (isFeedRobot(robot)) {
+    const feed = await runFeedRobot(robot, options.get ?? direct());
+    if (feed.rows.length === 0) {
+      return { status: 'empty', rows: [], pagesVisited: 1, reason: feed.reason ?? 'the feed had nothing in it' };
+    }
+
+    const sifted = applySift(feed.rows, robot.sift as Sift | undefined);
+    await options.saw?.(sifted.rows);
+    const seen = await remember(sifted.rows, robot.remember, options.memory);
+    const why = [feed.reason, sifted.note, seen.note].filter(Boolean).join('; ');
+    if (seen.rows.length === 0 && seen.note) {
+      return { status: 'empty', quiet: true, rows: [], pagesVisited: 1, reason: why };
+    }
+
+    return {
+      status: seen.rows.length === 0 ? 'empty' : 'ok',
+      rows: withoutNumbers(robot, seen.rows),
+      pagesVisited: 1,
       ...(why ? { reason: why } : {}),
     };
   }

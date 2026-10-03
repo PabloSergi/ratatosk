@@ -111,11 +111,8 @@ export async function runForAccount(userId: string, name: string, options: RunOp
    */
   const feedProxy = !isBrowserRobot(robot) ? (robot as { proxy?: string }).proxy : undefined;
   const headers = (robot as { headers?: Record<string, string> }).headers ?? {};
-  const askJson = feedProxy
-    ? asker(headers, await through((await findProxy(proxiesFileFor(userId), feedProxy))?.url ?? ''))
-    : Object.keys(headers).length > 0
-    ? asker(headers)
-    : undefined;
+  const get = feedProxy ? await through((await findProxy(proxiesFileFor(userId), feedProxy))?.url ?? '') : undefined;
+  const askJson = get ? asker(headers, get) : Object.keys(headers).length > 0 ? asker(headers) : undefined;
 
   let run: RunResult;
   try {
@@ -128,6 +125,7 @@ export async function runForAccount(userId: string, name: string, options: RunOp
         ...(memory ? { memory } : {}),
         ...(saw ? { saw } : {}),
         ...(askJson ? { askJson } : {}),
+        ...(get ? { get } : {}),
       }),
     );
   } catch (error) {

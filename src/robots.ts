@@ -5,14 +5,16 @@ import { parseScenario } from './scenario.js';
 import { InputError } from './errors.js';
 import { isTelegramRobot, parseTelegramRobot, type TelegramRobot } from './telegram.js';
 import { isApiRobot, parseApiRobot, type ApiRobot } from './api.js';
+import { isFeedRobot, parseFeedRobot, type FeedRobot } from './feed.js';
 
-/** A robot is a page walk, a Telegram read, or a JSON feed. All three are one JSON file on disk. */
-export type Robot = Scenario | TelegramRobot | ApiRobot;
+/** A robot is a page walk, a Telegram read, a JSON feed or a published feed. Each is one file on disk. */
+export type Robot = Scenario | TelegramRobot | ApiRobot | FeedRobot;
 
 /** One place decides which kind of robot a file holds, so nowhere else has to guess. */
 export function parseRobot(data: unknown): Robot {
   if (isTelegramRobot(data)) return parseTelegramRobot(data);
   if (isApiRobot(data)) return parseApiRobot(data);
+  if (isFeedRobot(data)) return parseFeedRobot(data);
   return parseScenario(data);
 }
 
@@ -172,13 +174,13 @@ export async function loadRobot(name: string, dir = ROBOTS_DIR): Promise<Robot> 
  * "not Telegram", which quietly became wrong the moment a third kind existed.
  */
 export function isBrowserRobot(robot: Robot): robot is Scenario {
-  return !isTelegramRobot(robot) && !isApiRobot(robot);
+  return !isTelegramRobot(robot) && !isApiRobot(robot) && !isFeedRobot(robot);
 }
 
 export interface RobotSummary {
   name: string;
   /** What it reads: a kind, not a guess made by looking at the pagination text. */
-  kind: 'web' | 'telegram' | 'api';
+  kind: 'web' | 'telegram' | 'api' | 'feed';
   url: string;
   fields: string[];
   /** Columns that come from inside a row, not from the list. They cost a page load each. */
@@ -214,6 +216,16 @@ export async function listRobots(dir = ROBOTS_DIR): Promise<RobotSummary[]> {
               url: robot.url,
               fields: Object.keys(robot.fields),
               pagination: robot.window ? `offset, window on ${robot.window.param}` : 'offset',
+            }
+          : isFeedRobot(robot)
+          ? {
+              name: robot.name,
+              kind: 'feed' as const,
+              url: robot.url,
+              fields: ['title', 'link', 'author', 'posted', 'text'],
+              ...(robot.sift ? { sift: robot.sift.keep.length + (robot.sift.drop?.length ?? 0) } : {}),
+              pagination: `feed, ${robot.limit ?? 100} entries`,
+              ...(robot.proxy ? { proxy: robot.proxy } : {}),
             }
           : isTelegramRobot(robot)
           ? {
