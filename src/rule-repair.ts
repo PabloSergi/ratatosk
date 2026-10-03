@@ -48,7 +48,7 @@ export async function repairRule(input: {
   ask: Ask;
   model?: { apiKey: string; model: string; baseUrl: string };
 }): Promise<RuleRepair> {
-  const want = input.want ?? input.sift.want ?? input.sift.judge?.want ?? '';
+  const want = input.want ?? input.sift.want ?? '';
   const before = await measure(input.rows, input.sift, want, input.ask);
 
   if (before.good) return { status: 'not-needed', before, diff: [] };
@@ -183,8 +183,5 @@ function describe(was: Sift, now: Sift): string[] {
 
   compare('keep', was.keep, now.keep);
   compare('drop', was.drop, now.drop);
-  if (Boolean(was.judge) !== Boolean(now.judge)) {
-    lines.push(now.judge ? '+ a model now looks at the edge cases' : '− the edge is no longer put to a model');
-  }
   return lines;
 }

@@ -349,19 +349,16 @@ function ruleFromEditor(): Sift {
       .filter(Boolean);
 
   const want = value('ruleWant');
-  const judge = el<HTMLInputElement>('ruleJudge').checked;
   return {
     ...(want ? { want } : {}),
     keep: lines('ruleKeep'),
     ...(lines('ruleDrop').length ? { drop: lines('ruleDrop') } : {}),
-    ...(judge ? { judge: { want, maxRows: 40 } } : {}),
   };
 }
 
 function putRuleInEditor(rule: Sift): void {
   el<HTMLTextAreaElement>('ruleKeep').value = rule.keep.join('\n');
   el<HTMLTextAreaElement>('ruleDrop').value = (rule.drop ?? []).join('\n');
-  el<HTMLInputElement>('ruleJudge').checked = Boolean(rule.judge);
   if (rule.want) el<HTMLInputElement>('ruleWant').value = rule.want;
 }
 

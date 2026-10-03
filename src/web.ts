@@ -576,7 +576,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     const dir = robotsDirFor(user.id);
     const robot = await loadRobot(String(body['name'] ?? ''), dir);
     const stored = (robot as { sift?: Sift }).sift;
-    const want = String(body['want'] ?? stored?.want ?? stored?.judge?.want ?? '').trim();
+    const want = String(body['want'] ?? stored?.want ?? '').trim();
     if (!want) throw new InputError('say what this scraper should keep, in your own words');
 
     const connection = await activeConnection(settingsFileFor(user.id));

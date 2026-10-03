@@ -460,7 +460,7 @@ export function keysList(keys: Array<{ id: string; label: string; hint: string; 
  */
 export function ruleEditor(
   name: string,
-  sift: { want?: string; keep: string[]; drop?: string[]; judge?: unknown } | null,
+  sift: { want?: string; keep: string[]; drop?: string[] } | null,
   remembering = false,
   deduping = true,
 ): string {
@@ -468,12 +468,11 @@ export function ruleEditor(
   return `
     <div class="meta">
       A rule decides what this scraper returns. <b>Keeps</b> are matched first — a row stays if any of them
-      hits. <b>Drops</b> are checked after, and a drop always wins. Rows nothing claims are the edge:
-      with a second opinion switched on, a model looks at those on every run.
+      hits. <b>Drops</b> are checked after, and a drop always wins. Rows nothing claims are left out, and
+      the run says how many there were: that number is what tells you the rule has fallen behind.
     </div>
     <div class="row spaced">
       <input type="text" id="ruleWant" placeholder="what this scraper should keep, in your own words" value="${escapeHtml(rule.want ?? '')}">
-      <label class="meta"><input type="checkbox" id="ruleJudge" ${rule.judge ? 'checked' : ''}> ask a model about the edge</label>
       <label class="meta" title="the same posting reposted every ten minutes is not news; a run hands back only what it has not seen">
         <input type="checkbox" id="ruleRemember" ${remembering ? 'checked' : ''}> only what I have not seen before
       </label>

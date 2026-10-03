@@ -28,16 +28,6 @@ export interface Sift {
    * value, or the whole match when the pattern has no group.
    */
   fields?: Record<string, { pattern: string; from?: string }>;
-  /**
-   * What to do with the rows the patterns did not claim.
-   *
-   * Patterns are lexical: they separate "we are looking for" from "I am looking for" and nothing
-   * subtler. Real tasks are not
-   * always lexical, and the wording people use drifts. So the leftovers — the rows no pattern kept —
-   * can be put to a model, in one batched call per run, up to a limit. The cheap rule handles the bulk;
-   * the expensive judgement handles the edge, and only the edge.
-   */
-  judge?: { want: string; maxRows: number };
 }
 
 export type Row = Record<string, string | null>;
@@ -196,63 +186,3 @@ export function judgeSift(result: SiftResult, total: number): { good: boolean; n
 }
 
 
-/**
- * The second opinion, for the rows the patterns did not claim.
- *
- * One call per run, not one per row: the whole leftover batch goes in a numbered list and comes back as
- * the numbers worth keeping. Bounded, because this is the only part of a run that costs money, and a
- * channel that suddenly posts a thousand messages must not quietly spend a thousand times more.
- */
-export async function judgeLeftovers(
-  rows: Row[],
-  want: string,
-  ask: (prompt: string) => Promise<string>,
-  limit: number,
-): Promise<{ rows: Row[]; asked: number }> {
-  const batch = rows.slice(0, Math.max(0, limit));
-  if (batch.length === 0) return { rows: [], asked: 0 };
-
-  const listed = batch
-    .map((row, index) => `${index + 1}. ${textOf(row).replace(/\s+/g, ' ').slice(0, 300)}`)
-    .join('\n');
-
-  const answer = await ask(
-    `Task: ${want}\n\n` +
-      `Which of these messages fit the task?\n` +
-      `Answer with JSON and nothing else: {"keep":[1,3]} — or {"keep":[]} if none of them do.\n\n${listed}`,
-  );
-
-  return { rows: batch.filter((_row, index) => chosen(answer, batch.length).has(index + 1)), asked: batch.length };
-}
-
-/**
- * Which numbers the answer actually chose.
- *
- * Reading every digit in the reply is how a model that explains itself gets misread: "message 1 does
- * not fit" then keeps message 1. So the JSON is read as JSON, and a bare list of numbers is accepted
- * only when the whole answer is one — anything wordier is treated as a refusal to answer in the form
- * asked for, which is safer than guessing what it meant.
- */
-function chosen(answer: string, count: number): Set<number> {
-  const inRange = (numbers: number[]): Set<number> =>
-    new Set(numbers.filter((number) => Number.isInteger(number) && number >= 1 && number <= count));
-
-  const start = answer.indexOf('{');
-  const end = answer.lastIndexOf('}');
-  if (start !== -1 && end > start) {
-    try {
-      const parsed = JSON.parse(answer.slice(start, end + 1)) as { keep?: unknown };
-      if (Array.isArray(parsed.keep)) return inRange(parsed.keep.map(Number));
-    } catch {
-      // Not JSON after all; fall through to the plain-list form.
-    }
-  }
-
-  const bare = answer.trim();
-  if (/^none$/i.test(bare)) return new Set();
-  if (/^[\d\s,]+$/.test(bare)) return inRange(bare.split(/[\s,]+/).filter(Boolean).map(Number));
-
-  // Wordy and without JSON: it did not answer in the form asked for, and a guess here silently keeps
-  // the wrong messages. Nothing is kept, and the run says how many were asked.
-  return new Set();
-}

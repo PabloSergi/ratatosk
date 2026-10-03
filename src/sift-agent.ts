@@ -68,8 +68,7 @@ Answer with JSON and nothing else:
   "drop": ["…"],               // …unless it matches one of these. A drop always wins over a keep.
   "fields": {                  // optional: values read out of the text itself
     "pay": { "pattern": "…" }  // the first capturing group is the value, or the whole match if there is none
-  },
-  "judge": true                // optional: have a model look at the leftovers on every run (see below)
+  }
 }
 
 What matters:
@@ -96,10 +95,10 @@ What matters:
 - A drop must not describe a word that also appears inside what you want. "Resume", "CV", "interested"
   and "experience" are written in postings as often as in the answers to them; a drop built on those
   removes the very messages you were asked to find. Aim a drop at who is speaking, not at a topic.
-- Set "judge": true when the task cannot be settled by wording alone — when whether a message fits
-  depends on meaning a pattern cannot see, or when people plainly write about this in many ways. Then
-  every run puts the messages your patterns did not claim to a model, in one batched call. That costs
-  money on every run, so ask for it when it is needed and not otherwise.`;
+- The patterns are the whole of the rule. Nothing reads these messages again at scrape time: a run
+  applies what you write here and hands the rows on, so whatever a pattern cannot tell apart is left
+  for whoever asked for the rows. Write for the wordings that actually occur rather than hoping
+  something downstream will rescue the rest.`;
 
 export async function buildSift(options: SiftOptions): Promise<SiftBuild> {
   const usage = { promptTokens: 0, completionTokens: 0, calls: 0 };
@@ -222,21 +221,15 @@ export async function buildSift(options: SiftOptions): Promise<SiftBuild> {
             `These were kept and should not have been: ${audit.examples.join(' | ')}\n` +
             `A pattern cannot see who the subject of a sentence is: "looking for designers" and ` +
             `"designer looking for work" are the same string to it. Anchor the direction — who is ` +
-            `speaking, and about whom — or leave those to the judge.`,
+            `speaking, and about whom.`,
         });
         continue;
       }
 
-      // Whether the edge needs a model on every run is measured, not asked. Anything the patterns did
-      // not claim, and anything they claimed wrongly, is exactly what a second opinion is for.
-      const unclaimedShare = result.unclaimed.length / options.sample.length;
-      const needsJudge = audit.wrong > 0 || unclaimedShare > 0.1;
-      const finalRule: Sift = needsJudge
-        ? { ...rule, judge: rule.judge ?? { want: options.want, maxRows: LEFTOVERS_PER_RUN } }
-        : { ...rule };
-      if (!needsJudge) delete finalRule.judge;
-
-      return { sift: finalRule, attempts, usage };
+      // What the patterns could not decide stays undecided here, and is said out loud rather than
+      // settled by a model at scrape time: deciding what a row MEANS is the caller's subject, not the
+      // platform's. Writing the patterns is this agent's job; applying them is all a run does.
+      return { sift: { ...rule }, attempts, usage };
     }
 
     messages.push({ role: 'assistant', content: reply.content });
@@ -348,9 +341,6 @@ function textOf(row: Row): string {
 /** How many sampled messages the model is shown. Enough to see the shape, not the whole archive. */
 const SHOWN = Number(process.env['RATATOSK_SIFT_SHOWN'] ?? 80);
 
-/** How many unclaimed rows a single run may put to a model. A busy day must not become an expensive one. */
-const LEFTOVERS_PER_RUN = Number(process.env['RATATOSK_JUDGE_PER_RUN'] ?? 40);
-
 /** Models like to wrap JSON in prose or in a fence. Take the object and ignore the rest. */
 function parseRule(content: string, want: string): Sift | undefined {
   const start = content.indexOf('{');
@@ -358,7 +348,7 @@ function parseRule(content: string, want: string): Sift | undefined {
   if (start === -1 || end <= start) return undefined;
 
   try {
-    const parsed = JSON.parse(content.slice(start, end + 1)) as Sift & { judge?: boolean | { want: string; maxRows: number } };
+    const parsed = JSON.parse(content.slice(start, end + 1)) as Sift;
     if (!Array.isArray(parsed.keep)) return undefined;
     return {
       want,
@@ -366,8 +356,6 @@ function parseRule(content: string, want: string): Sift | undefined {
       ...(Array.isArray(parsed.drop) ? { drop: parsed.drop.filter((pattern) => typeof pattern === 'string') } : {}),
       ...(parsed.from ? { from: parsed.from } : {}),
       ...(parsed.fields && typeof parsed.fields === 'object' ? { fields: parsed.fields } : {}),
-      // The model asks for a second opinion; the platform decides what it may cost.
-      ...(parsed.judge ? { judge: { want, maxRows: LEFTOVERS_PER_RUN } } : {}),
     };
   } catch {
     return undefined;

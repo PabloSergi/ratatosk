@@ -3,7 +3,7 @@ import type { Robot } from './robots.js';
 import type { SiteRule } from './rules.js';
 import { runScenario, type RunResult } from './run.js';
 import { identity, identityOfMessage, meet, type Remember, type Row, type Seen } from './memory.js';
-import { fieldsOf, judgeLeftovers, judgeSift, sift, type Sift } from './sift.js';
+import { fieldsOf, judgeSift, sift, type Sift } from './sift.js';
 import { isTelegramRobot, runTelegramRobot } from './telegram.js';
 import { asker, deepen, isApiRobot, runApiRobot, type AskJson } from './api.js';
 import { maskRow } from './mask.js';
@@ -33,8 +33,6 @@ export async function runRobot(
     rules?: SiteRule[];
     maxPages?: number;
     telegramSession?: string;
-    /** How to put a question to a model, when a robot's rule leaves the edge cases to one. */
-    ask?: (prompt: string) => Promise<string>;
     /** How to put a question to a JSON feed. Injected so a test never reaches the network. */
     askJson?: AskJson;
     /**
@@ -50,7 +48,7 @@ export async function runRobot(
     const { rows, reason } = await runTelegramRobot(robot, options.telegramSession);
     if (reason) return { status: 'broken', rows: [], pagesVisited: 0, reason };
 
-    const sifted = await applySift(rows, robot.sift, options.ask);
+    const sifted = applySift(rows, robot.sift);
     if (sifted.rows.length === 0) {
       return {
         status: 'empty',
@@ -97,7 +95,7 @@ export async function runRobot(
       };
     }
 
-    const sifted = await applySift(feed.rows, (robot as { sift?: Sift }).sift, options.ask);
+    const sifted = applySift(feed.rows, (robot as { sift?: Sift }).sift);
     await options.saw?.(sifted.rows);
     const seen = await remember(sifted.rows, robot.remember, options.memory);
     const why = [feed.reason, sifted.note, seen.note].filter(Boolean).join('; ');
@@ -173,7 +171,7 @@ export async function runRobot(
   // remembering are separate things, though: a robot may do either, both, or neither.
   if (run.status !== 'ok' || (!robot.sift && !robot.remember)) return run;
 
-  const sifted = await applySift(run.rows, robot.sift, options.ask);
+  const sifted = applySift(run.rows, robot.sift);
   if (sifted.rows.length === 0 && robot.sift) {
     return { ...run, status: 'empty', rows: [], reason: `the sift kept none of the ${run.rows.length} rows` };
   }
@@ -230,38 +228,23 @@ async function remember(
 /**
  * The sift, with its verdict in words — a rule that keeps everything has decided nothing.
  *
- * Patterns first, because they are free. Then, only if the robot asks for it and only for the rows no
- * pattern claimed, one batched question to a model: that is where the wording nobody anticipated gets
- * caught, and it is bounded so a busy day cannot quietly become an expensive one.
+ * Patterns, and nothing else. A run used to be able to put what the patterns could not decide to a
+ * model — "is this a vacancy or somebody's CV?" — and that was the engine holding an opinion about
+ * somebody else's subject. Every user's edge is their own: what counts as a vacancy here is a flat
+ * there and a lead somewhere else, and none of it belongs in the thing that fetches pages. The rows
+ * are handed over; whoever asked for them decides what they mean.
+ *
+ * A model still writes and mends the rule itself — see sift-agent.ts and rule-repair.ts. Writing the
+ * rule is the platform's business; applying somebody's meaning to a row is not.
  */
-async function applySift(
+function applySift(
   rows: Array<Record<string, string | null>>,
   rule: Sift | undefined,
-  ask?: (prompt: string) => Promise<string>,
-): Promise<{ rows: Array<Record<string, string | null>>; note?: string }> {
+): { rows: Array<Record<string, string | null>>; note?: string } {
   if (!rule) return { rows };
 
   const result = sift(rows, rule);
-  const verdict = judgeSift(result, rows.length);
-  if (!rule.judge || !ask || result.unclaimed.length === 0) {
-    return { rows: result.rows, note: `sift: ${verdict.note}` };
-  }
-
-  try {
-    const second = await judgeLeftovers(result.unclaimed, rule.judge.want, ask, rule.judge.maxRows);
-    return {
-      rows: [...result.rows, ...second.rows],
-      note:
-        `sift: ${verdict.note}; a model looked at ${second.asked} the patterns did not claim ` +
-        `and kept ${second.rows.length}`,
-    };
-  } catch (error) {
-    // A model that will not answer must not cost the run: the patterns already did their work.
-    return {
-      rows: result.rows,
-      note: `sift: ${verdict.note}; the second opinion was unavailable (${firstLine(error)})`,
-    };
-  }
+  return { rows: result.rows, note: `sift: ${judgeSift(result, rows.length).note}` };
 }
 
 function firstLine(error: unknown): string {

@@ -135,49 +135,6 @@ test('rows no pattern claimed are kept apart from rows a pattern refused', () =>
   assert.ok(!unclaimedText.includes('Selling an account'), 'what a rule refused outright is settled');
 });
 
-test('a model looks at the leftovers once per run, not once per message', async () => {
-  const { judgeLeftovers } = await import('../src/sift.ts');
-  const asked = [];
-  const ask = async (prompt) => {
-    asked.push(prompt);
-    return '{"keep":[1]}';
-  };
-
-  const leftovers = [{ text: 'Our team needs an operator, remote' }, { text: 'anyone up for a walk' }];
-  const second = await judgeLeftovers(leftovers, 'job postings', ask, 40);
-
-  assert.equal(asked.length, 1, 'one call for the whole batch');
-  assert.equal(second.rows.length, 1);
-  assert.match(second.rows[0].text, /operator/);
-  assert.match(asked[0], /1\. Our team needs an operator/, 'the messages went in numbered');
-  assert.match(asked[0], /\{"keep":\[1,3\]\}/, 'and the form of the answer was asked for exactly');
-});
-
-test('the second opinion is bounded, so a busy day cannot become an expensive one', async () => {
-  const { judgeLeftovers } = await import('../src/sift.ts');
-  const many = Array.from({ length: 500 }, (_, index) => ({ text: `message ${index}` }));
-  let shown = 0;
-  const second = await judgeLeftovers(many, 'job postings', async (prompt) => {
-    shown = (prompt.match(/^\d+\./gm) ?? []).length;
-    return '{"keep":[]}';
-  }, 40);
-
-  assert.equal(second.asked, 40, 'forty, not five hundred');
-  assert.equal(shown, 40);
-  assert.deepEqual(second.rows, [], '"none" is an answer and it is respected');
-});
-
-test('the model can ask for a second opinion, and the platform sets its budget', async () => {
-  const ask = saying(JSON.stringify({ keep: ['we are looking for', 'needed', 'team needs'], drop: ['\\bcv\\b', 'selling', 'looking for work'], judge: true }));
-  const built = await build(ask);
-
-  assert.ok(built.sift.judge, 'the model asked for it');
-  assert.equal(built.sift.judge.maxRows, 40, 'and the platform said how much of it it may have');
-  assert.match(built.sift.judge.want, /job postings/, 'the task travels with the rule, because a run has no other memory of it');
-});
-
-// --- and the other half: is what it kept actually what was asked? --------------------------------
-
 test('a rule that keeps the wrong direction is refused, however much it keeps', async () => {
   // The failure a pattern cannot see on its own: "looking for designers" and "chatter looking for
   // work" are the same string to a regex, and one of them is a CV.
@@ -214,54 +171,6 @@ test('a rule that keeps the wrong direction is refused, however much it keeps', 
   assert.ok(built.sift, 'and the corrected rule is accepted');
 });
 
-test('the second opinion is switched on by measurement, not by the model saying so', async () => {
-  const sample = [
-    { text: 'We are looking for a designer' },
-    { text: 'Operator needed' },
-    { text: 'need a chat operator, write in a direct message' },
-    { text: 'up' },
-    { text: 'anyone up for a walk' },
-  ];
-
-  // A rule that leaves a lot unclaimed gets a judge whether or not the model asked for one.
-  const built = await buildSift({
-    sample,
-    want: 'job postings',
-    apiKey: 'x',
-    model: 'm',
-    baseUrl: 'https://nowhere',
-    ask: saying(JSON.stringify({ keep: ['we are looking for', 'needed'], drop: [] })),
-  });
-
-  assert.ok(built.sift.judge, 'two of five went unclaimed — that edge is what a model is for');
-  assert.equal(built.sift.judge.maxRows, 40);
-});
-
-test('a model that explains itself is not misread as choosing', async () => {
-  const { judgeLeftovers } = await import('../src/sift.ts');
-  const leftovers = [{ text: 'I am an experienced designer looking for a job' }, { text: 'We are hiring designers' }];
-
-  // The failure this exists for: reading every digit in the reply keeps message 1 because the model
-  // mentioned message 1 while explaining that it does not fit.
-  const explaining = await judgeLeftovers(leftovers, 'job postings', async () => 'Message 1 is a CV, so it does not fit the task.', 40);
-  assert.deepEqual(explaining.rows, [], 'an explanation is not a choice');
-
-  const proper = await judgeLeftovers(leftovers, 'job postings', async () => '{"keep":[2]}', 40);
-  assert.equal(proper.rows.length, 1);
-  assert.match(proper.rows[0].text, /hiring/);
-
-  const bare = await judgeLeftovers(leftovers, 'job postings', async () => ' 2 ', 40);
-  assert.equal(bare.rows.length, 1, 'a bare list of numbers is still an answer');
-
-  const none = await judgeLeftovers(leftovers, 'job postings', async () => '{"keep":[]}', 40);
-  assert.deepEqual(none.rows, []);
-});
-
-/**
- * The other half of correctness, and the half that hides. A rule that keeps eleven perfect postings
- * and throws away thirty more passes a precision check with full marks while losing most of what was
- * asked for — silently, which is the failure this whole project exists to prevent.
- */
 test('a rule that throws away what was asked for is refused, however right the rest of it is', async () => {
   const sample = [
     { text: 'We are looking for a chat operator, evening shift' },

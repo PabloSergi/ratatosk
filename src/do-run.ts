@@ -13,7 +13,6 @@ import { keepResult } from './results.js';
 import type { RunResult } from './run.js';
 import { runRobot } from './run-robot.js';
 import type { SiteRule } from './rules.js';
-import { runConnection, settingsFileFor } from './settings.js';
 import { isTelegramRobot, sessionForRobot } from './telegram.js';
 
 /**
@@ -59,31 +58,6 @@ export async function runForAccount(userId: string, name: string, options: RunOp
   const robot = await loadRobot(name, robotsDirFor(userId));
       const telegramSession = isTelegramRobot(robot) ? await sessionForRobot(userId, robot.account) : undefined;
   const started = Date.now();
-
-  // A robot only gets a way to ask if its own rule says it needs one — and it is this account's
-  // connection that pays for it, not the server's.
-  const needsJudge = Boolean((robot as { sift?: { judge?: unknown } }).sift?.judge);
-  const connection = needsJudge ? await runConnection(settingsFileFor(userId)) : undefined;
-  const ask = connection
-    ? async (prompt: string): Promise<string> => {
-        const answer = await fetch(`${connection.baseUrl}/chat/completions`, {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            authorization: `Bearer ${connection.key}`,
-            'x-title': 'ratatosk',
-          },
-          body: JSON.stringify({
-            model: connection.model,
-            messages: [{ role: 'user', content: prompt }],
-            temperature: 0,
-          }),
-        });
-        if (!answer.ok) throw new Error(`the model answered ${answer.status}`);
-        const body = (await answer.json()) as { choices?: Array<{ message?: { content?: string } }> };
-        return body.choices?.[0]?.message?.content ?? '';
-      }
-    : undefined;
 
   // What this robot has already returned. Without it, a posting reposted every ten minutes is a new
   // row every ten minutes, and a week of that buries the eleven things that actually happened.
@@ -134,7 +108,6 @@ export async function runForAccount(userId: string, name: string, options: RunOp
         rules: options.rules,
         ...(maxPages ? { maxPages } : {}),
         telegramSession,
-        ...(ask ? { ask } : {}),
         ...(memory ? { memory } : {}),
         ...(saw ? { saw } : {}),
       }),
