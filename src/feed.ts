@@ -1,6 +1,6 @@
 import type { Remember } from './memory.js';
 import type { SiftRule } from './scenario.js';
-import { direct, type Get } from './through.js';
+import { direct, patiently, type Get } from './through.js';
 
 /**
  * A source that publishes a feed: Atom or RSS.
@@ -107,10 +107,10 @@ export interface FeedRun {
 }
 
 export async function runFeedRobot(robot: FeedRobot, get: Get = direct()): Promise<FeedRun> {
-  const answer = await get(robot.url, { accept: 'application/atom+xml, application/rss+xml, application/xml', ...robot.headers });
-  if (answer.status < 200 || answer.status >= 300) {
-    throw new Error(`${answer.status} ${answer.statusText}`.trim());
-  }
+  const answer = await patiently(get)(robot.url, {
+    accept: 'application/atom+xml, application/rss+xml, application/xml',
+    ...robot.headers,
+  });
 
   const rows = readFeed(answer.body, robot.limit ?? 100);
   if (rows.length === 0) {

@@ -19,7 +19,7 @@
  *   overwrites itself, and nothing is ever missed between the halves.
  */
 import { InputError } from './errors.js';
-import { direct, type Get } from './through.js';
+import { direct, patiently, type Get } from './through.js';
 import type { Remember } from './memory.js';
 
 export interface ApiRobot {
@@ -277,22 +277,7 @@ const rest = (ms: number): Promise<void> => new Promise((done) => setTimeout(don
  * one timeout is not a broken source — it is a timeout.
  */
 export function asker(headers: Record<string, string> = {}, get: Get = direct()): AskJson {
-  return async (url: string): Promise<unknown> => {
-    let waited = 400;
-    let last: unknown;
-    for (let attempt = 0; attempt < 5; attempt++) {
-      try {
-        const answer = await get(url, { accept: 'application/json', ...headers });
-        if (answer.status >= 200 && answer.status < 300) return JSON.parse(answer.body);
-        last = new Error(`${answer.status} ${answer.statusText}`);
-        // A refusal is a verdict, not a hiccup; only the source being busy is worth asking again.
-        if (answer.status < 500 && answer.status !== 429) throw last;
-      } catch (error) {
-        last = error;
-      }
-      await rest(waited);
-      waited *= 2;
-    }
-    throw last instanceof Error ? last : new Error(String(last));
-  };
+  const patient = patiently(get);
+  return async (url: string): Promise<unknown> =>
+    JSON.parse((await patient(url, { accept: 'application/json', ...headers })).body);
 }

@@ -104,3 +104,44 @@ export async function through(proxyUrl: string): Promise<Get> {
       asking.end();
     });
 }
+
+/**
+ * Ask, and keep asking while the answer is "not now".
+ *
+ * A source answering a few hundred times a run will time out once or twice, and one timeout is not a
+ * broken source — it is a timeout. Reddit makes the same point louder: its feed rate-limits hard, so
+ * three robots started within a minute of each other turn the third one into a 429. Marking that
+ * robot broken would wake somebody up over a source that is working.
+ *
+ * A refusal that is a verdict — 403, 404, a bad address — is not retried. Only being told to wait is.
+ */
+export function patiently(get: Get, tries = 5): Get {
+  return async (url, headers) => {
+    let waited = 400;
+    let last: unknown;
+
+    for (let attempt = 1; attempt <= tries; attempt++) {
+      let answer: Answer | undefined;
+      try {
+        answer = await get(url, headers);
+      } catch (error) {
+        last = error;
+      }
+
+      if (answer) {
+        if (answer.status >= 200 && answer.status < 300) return answer;
+        last = new Error(`${answer.status} ${answer.statusText}`.trim());
+        // Thrown out of the loop rather than inside the try, which would be caught here and asked
+        // again: five goes at a 403 is five goes at being told no, and twenty seconds of them.
+        if (answer.status < 500 && answer.status !== 429) break;
+      }
+
+      if (attempt < tries) {
+        await new Promise((done) => setTimeout(done, waited));
+        waited *= 2;
+      }
+    }
+
+    throw last instanceof Error ? last : new Error(String(last));
+  };
+}

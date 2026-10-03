@@ -79,9 +79,27 @@ test('правило читает тело и заголовок, так что 
   assert.ok(run.rows[0].title.startsWith('[HIRING]'));
 });
 
-test('отказ источника — это поломка, а не пустой прогон', async () => {
+test('429 переспрашивается, а не хоронит робота с первого раза', async () => {
+  let asked = 0;
+  const get = async () => {
+    asked++;
+    return asked < 3 ? { status: 429, statusText: 'Too Many Requests', body: '' } : { status: 200, statusText: 'OK', body: ATOM };
+  };
+
+  const run = await runFeedRobot({ name: 'x', version: 1, source: 'feed', url: 'https://x.test/f.rss' }, get);
+
+  assert.equal(asked, 3, 'переспросил, пока лента не ответила');
+  assert.equal(run.rows.length, 2);
+});
+
+test('а отказ по существу — это поломка, и спрашивать второй раз незачем', async () => {
+  let asked = 0;
   await assert.rejects(
-    () => runFeedRobot({ name: 'x', version: 1, source: 'feed', url: 'https://x.test/f.rss' }, async () => ({ status: 429, statusText: 'Too Many Requests', body: '' })),
-    /429 Too Many Requests/,
+    () => runFeedRobot({ name: 'x', version: 1, source: 'feed', url: 'https://x.test/f.rss' }, async () => {
+      asked++;
+      return { status: 403, statusText: 'Blocked', body: '' };
+    }),
+    /403 Blocked/,
   );
+  assert.equal(asked, 1, 'один раз, потому что 403 — это ответ, а не занятость');
 });
