@@ -2,19 +2,32 @@ import assert from 'node:assert/strict';
 import { test } from 'vitest';
 import { BrowserPool } from '../src/browsers.ts';
 
-/** A stand-in for a browser: it records that it was opened and closed, and nothing else. */
+/** A stand-in for a browser: it records that it was opened and closed, and says whether it is still there. */
 function fakePool({ max = 2 } = {}) {
   const opened = [];
   const closed = [];
+  const live = [];
   const pool = new BrowserPool({
     max,
     profileDir: (key) => `profiles/${key}`,
     open: async (profileDir) => {
       opened.push(profileDir);
-      return { page: { id: profileDir }, close: async () => { closed.push(profileDir); } };
+      const session = {
+        gone: false,
+        page: {
+          id: profileDir,
+          async currentUrl() {
+            if (session.gone) throw new Error('Target page, context or browser has been closed');
+            return 'about:blank';
+          },
+        },
+        close: async () => { closed.push(profileDir); },
+      };
+      live.push(session);
+      return session;
     },
   });
-  return { pool, opened, closed };
+  return { pool, opened, closed, live };
 }
 
 test('each account gets its own browser and its own profile', async () => {
@@ -66,5 +79,21 @@ test('a browser that throws is dropped, and the next call starts a fresh one', a
   assert.deepEqual(closed, ['profiles/a']);
   await pool.use('a', async () => 1);
   assert.equal(opened.length, 2);
+  await pool.closeAll();
+});
+
+test('a browser that went away behind our back is replaced, not handed out', async () => {
+  const { pool, opened, closed, live } = fakePool();
+  await pool.use('a', async () => 1);
+  assert.equal(opened.length, 1);
+
+  // The browsers live in a container of their own; it was restarted. Nothing told this pool, and the
+  // handle it kept now answers every call with "target closed".
+  live[0].gone = true;
+
+  const used = await pool.use('a', async (session) => session.page.id);
+  assert.equal(used, 'profiles/a');
+  assert.equal(opened.length, 2, 'a fresh one was started');
+  assert.deepEqual(closed, ['profiles/a'], 'and the dead one was let go');
   await pool.closeAll();
 });

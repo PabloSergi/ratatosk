@@ -25,6 +25,13 @@ interface Slot {
   busy: number;
 }
 
+async function alive(session: BrowserSession): Promise<boolean> {
+  return session.page.currentUrl().then(
+    () => true,
+    () => false,
+  );
+}
+
 export class BrowserPool {
   private readonly slots = new Map<string, Slot>();
   private clock = 0;
@@ -67,6 +74,16 @@ export class BrowserPool {
   private async runOne<T>(key: string, slot: Slot, work: (session: BrowserSession) => Promise<T>): Promise<T> {
     slot.busy++;
     try {
+      // A kept session is only worth keeping while the browser behind it is still there. One that
+      // went away — a restart of the container that holds the browsers, a crash, an eviction on the
+      // far side — leaves a handle that answers everything with "target closed", and the first run to
+      // pick it up fails for a reason that has nothing to do with the site it was pointed at. Asking
+      // it one cheap question first is the difference between a lost run and a slower one.
+      if (slot.session && !(await alive(slot.session))) {
+        const dead = slot.session;
+        slot.session = undefined;
+        await dead.close().catch(() => undefined);
+      }
       if (!slot.session) {
         await this.evictIfNeeded();
         slot.session = await this.options.open(this.options.profileDir(key), key);
