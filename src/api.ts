@@ -19,6 +19,8 @@
  *   overwrites itself, and nothing is ever missed between the halves.
  */
 import { InputError } from './errors.js';
+import { direct, type Get } from './through.js';
+import type { Remember } from './memory.js';
 
 export interface ApiRobot {
   name: string;
@@ -28,9 +30,16 @@ export interface ApiRobot {
   url: string;
   /** Parameters that never change for this robot — the region, the category, the kind of deal. */
   query?: Record<string, string | number>;
-  /** Where the rows and the count live in the answer, as dotted paths. */
+  /** Where the rows live in the answer, as a dotted path. */
   rowsAt: string;
-  totalAt: string;
+  /**
+   * Where the count lives, when the source says one.
+   *
+   * A board does: it is a search with a total, and the total is what makes walking it possible. A
+   * stream does not — the newest hundred is all it will ever hand over, and there is nothing behind
+   * them to page into. Leaving this out says so, and the walk is a single call.
+   */
+  totalAt?: string;
   /** How the source pages: the offset parameter, and how many rows it will give at once. */
   page: { param: string; sizeParam: string; size: number };
   /**
@@ -42,13 +51,22 @@ export interface ApiRobot {
   identity: string;
   /** Output column ← dotted path into the row. `a[].b` maps over an array and takes b from each. */
   fields: Record<string, string>;
+  /** Sent with every call: what a source insists on being told, usually a User-Agent. */
+  headers?: Record<string, string>;
+  /**
+   * Which proxy to go out through, if any.
+   *
+   * The same field a browser robot carries, and for the same reason: some sources answer a laptop and
+   * refuse a server, and no amount of header work changes that.
+   */
+  proxy?: string;
   /** Courtesy between calls. */
   pauseMs?: number;
   /** A ceiling on calls, so a source that changes its mind cannot spin here forever. */
   maxCalls?: number;
   /** What the list does not carry. See `deepen`. */
   detail?: ApiDetail;
-  remember?: { by?: string; days?: number; mode?: 'new' | 'all' };
+  remember?: Remember;
 }
 
 /**
@@ -102,7 +120,7 @@ export function parseApiRobot(data: unknown): ApiRobot {
   const robot = data as ApiRobot;
   const name = robot?.name ?? 'robot';
   if (!/^https?:\/\//.test(robot?.url ?? '')) throw new InputError(`${name}: url must be http(s)`);
-  if (!robot.rowsAt || !robot.totalAt) throw new InputError(`${name}: rowsAt and totalAt are required`);
+  if (!robot.rowsAt) throw new InputError(`${name}: rowsAt is required`);
   if (!robot.page?.param || !robot.page?.sizeParam) throw new InputError(`${name}: page needs param and sizeParam`);
   if (!robot.identity) throw new InputError(`${name}: identity is required — without it halves double`);
   if (!robot.fields || Object.keys(robot.fields).length === 0) throw new InputError(`${name}: no fields to read`);
@@ -181,7 +199,28 @@ export async function runApiRobot(robot: ApiRobot, ask: AskJson): Promise<ApiRun
   const countOf = async (window?: Record<string, string>): Promise<number> => {
     state.calls++;
     const answer = await ask(at({ ...window, [robot.page.sizeParam]: 1, [robot.page.param]: 0 }));
-    return Number(pluck(answer, robot.totalAt) ?? 0);
+    return Number(pluck(answer, robot.totalAt!) ?? 0);
+  };
+
+  /**
+   * One call, for a source that holds no more than one call's worth.
+   *
+   * Not `take` with a made-up total: paging a stream means asking for the newest hundred again under
+   * a different offset, getting the same hundred back, and calling that a second page. The right
+   * number of calls for something with no count is one.
+   */
+  const takeOnce = async (): Promise<void> => {
+    state.calls++;
+    const answer = await ask(at({ [robot.page.sizeParam]: robot.page.size, [robot.page.param]: 0 }));
+    const batch = pluck(answer, robot.rowsAt);
+    if (!Array.isArray(batch)) {
+      state.notes.push(`nothing is at ${robot.rowsAt} in the answer`);
+      return;
+    }
+    for (const one of batch) {
+      const key = say(pluck(one, robot.identity));
+      if (key) found.set(key, readRow(one, robot.fields));
+    }
   };
 
   const take = async (window: Record<string, string> | undefined, total: number): Promise<void> => {
@@ -219,7 +258,8 @@ export async function runApiRobot(robot: ApiRobot, ask: AskJson): Promise<ApiRun
     await take(window, total);
   };
 
-  if (robot.window) await walk(robot.window.from, robot.window.to);
+  if (!robot.totalAt) await takeOnce();
+  else if (robot.window) await walk(robot.window.from, robot.window.to);
   else await take(undefined, await countOf());
 
   if (state.calls >= ceiling) state.notes.push(`stopped at ${ceiling} calls`);
@@ -236,16 +276,14 @@ const rest = (ms: number): Promise<void> => new Promise((done) => setTimeout(don
  * Ask, and keep asking. A board answering a few hundred times a run will time out once or twice, and
  * one timeout is not a broken source — it is a timeout.
  */
-export function asker(headers: Record<string, string> = {}): AskJson {
+export function asker(headers: Record<string, string> = {}, get: Get = direct()): AskJson {
   return async (url: string): Promise<unknown> => {
     let waited = 400;
     let last: unknown;
     for (let attempt = 0; attempt < 5; attempt++) {
       try {
-        const answer = await fetch(url, {
-          headers: { accept: 'application/json', 'accept-encoding': 'gzip', ...headers },
-        });
-        if (answer.ok) return await answer.json();
+        const answer = await get(url, { accept: 'application/json', ...headers });
+        if (answer.status >= 200 && answer.status < 300) return JSON.parse(answer.body);
         last = new Error(`${answer.status} ${answer.statusText}`);
         // A refusal is a verdict, not a hiccup; only the source being busy is worth asking again.
         if (answer.status < 500 && answer.status !== 429) throw last;

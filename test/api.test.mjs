@@ -194,3 +194,33 @@ test('a scraper told to carry no numbers hands over none', async () => {
   assert.ok(!/0908765432|0356789012/.test(JSON.stringify(run.rows)), 'ни одного телефона в том, что отдано');
   assert.ok(run.rows[0].body_vi.includes('12.000.000'), 'а цена на месте');
 });
+
+/**
+ * A stream is not a board.
+ *
+ * Reddit hands over the newest hundred and has nothing behind them: asking again under a different
+ * offset returns the same hundred. A walk that believed in paging here would collect one page, count
+ * it as two, and keep going until the call ceiling — so a feed with no count is asked exactly once.
+ */
+test('a feed that says no total is asked once, not paged', async () => {
+  let asked = 0;
+  const ask = async () => {
+    asked++;
+    return { data: { children: Array.from({ length: 100 }, (_, index) => ({ data: { id: `t3_${index}`, title: `post ${index}` } })) } };
+  };
+
+  const robot = {
+    name: 'stream', version: 1, source: 'api',
+    url: 'https://example.test/r/x/new.json',
+    rowsAt: 'data.children',
+    page: { param: 'count', sizeParam: 'limit', size: 100 },
+    identity: 'data.id',
+    fields: { title: 'data.title' },
+  };
+
+  const run = await runApiRobot(robot, ask);
+
+  assert.equal(asked, 1, 'один вызов, а не страница за страницей');
+  assert.equal(run.rows.length, 100);
+  assert.equal(run.rows[0].title, 'post 0');
+});

@@ -9,6 +9,8 @@ import { findProxy, proxiesFileFor, toRunningBrowser } from './proxies.js';
 import { robotsDirFor } from './auth.js';
 import { finishedPass, keepSeen, lastPassOf } from './catalogue.js';
 import { isBrowserRobot, loadRobot } from './robots.js';
+import { asker } from './api.js';
+import { through } from './through.js';
 import { keepResult } from './results.js';
 import type { RunResult } from './run.js';
 import { runRobot } from './run-robot.js';
@@ -100,6 +102,21 @@ export async function runForAccount(userId: string, name: string, options: RunOp
     Date.now() - Date.parse(lastFull) >= (quick.fullEveryHours ?? 24) * 60 * 60 * 1000;
   const maxPages = options.maxPages ?? (fullIsDue ? undefined : (quick.maxPages ?? 1));
 
+  /**
+   * How a feed robot asks, when it is not asking from here.
+   *
+   * A browser robot's proxy is handed to Chromium at launch. A feed robot has no Chromium, so the
+   * asking itself has to go out through the proxy — and whether it does is decided here, where the
+   * account's proxies live, rather than in the robot, which must never see a password.
+   */
+  const feedProxy = !isBrowserRobot(robot) ? (robot as { proxy?: string }).proxy : undefined;
+  const headers = (robot as { headers?: Record<string, string> }).headers ?? {};
+  const askJson = feedProxy
+    ? asker(headers, await through((await findProxy(proxiesFileFor(userId), feedProxy))?.url ?? ''))
+    : Object.keys(headers).length > 0
+    ? asker(headers)
+    : undefined;
+
   let run: RunResult;
   try {
     run = await options.pool.use(poolKey(userId, isBrowserRobot(robot) ? robot.proxy : undefined), (session) =>
@@ -110,6 +127,7 @@ export async function runForAccount(userId: string, name: string, options: RunOp
         telegramSession,
         ...(memory ? { memory } : {}),
         ...(saw ? { saw } : {}),
+        ...(askJson ? { askJson } : {}),
       }),
     );
   } catch (error) {
@@ -141,7 +159,7 @@ export async function runForAccount(userId: string, name: string, options: RunOp
     ...(run.challenge ? { door: true } : {}),
     ...(run.quiet ? { quiet: true } : {}),
     ...(maxPages && !fullIsDue ? { quick: true } : {}),
-    ...(isBrowserRobot(robot) ? { proxy: robot.proxy ?? 'direct' } : {}),
+    ...(isBrowserRobot(robot) ? { proxy: robot.proxy ?? 'direct' } : feedProxy ? { proxy: feedProxy } : {}),
   });
 
   // Kept so that "I ran it yesterday" is answerable today. Only the rows: the verdict and the reason
@@ -168,7 +186,7 @@ export async function runForAccount(userId: string, name: string, options: RunOp
     pages: run.pagesVisited,
     ms: Date.now() - started,
     ...(run.reason ? { why: run.reason.slice(0, 200) } : {}),
-    ...(isBrowserRobot(robot) ? { proxy: robot.proxy ?? 'direct' } : {}),
+    ...(isBrowserRobot(robot) ? { proxy: robot.proxy ?? 'direct' } : feedProxy ? { proxy: feedProxy } : {}),
   });
   return run;
 }
