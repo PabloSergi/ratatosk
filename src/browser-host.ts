@@ -138,7 +138,10 @@ async function browserFor(profileDir: string, proxyUrl?: string): Promise<Runnin
   if (already) {
     // A browser that died on its own — a crash, an out-of-memory — must not be handed out as if it
     // were alive; the caller would connect to a closed port and read it as their own fault.
-    if (already.context.browser()?.isConnected() !== false) return already;
+    if (already.context.browser()?.isConnected() !== false) {
+      await reapAbandonedPages(already);
+      return already;
+    }
     running.delete(profileDir);
   }
 
@@ -182,6 +185,34 @@ async function browserFor(profileDir: string, proxyUrl?: string): Promise<Runnin
   running.set(profileDir, started);
   info('browser host: a browser is up', { profileDir, port, debugPort, proxy: proxyUrl ? hostOf(proxyUrl) : 'direct' });
   return started;
+}
+
+/**
+ * How many pages one browser may be carrying before some of them are nobody's.
+ *
+ * A page here outlives the process that opened it. A worker holds one per hand, the web service takes
+ * one for a check, a takeover takes another — and when any of those restarts, its page stays open in
+ * this browser with nobody on the other end. Nothing cleans it up: the side that could close it is
+ * the side that went away.
+ *
+ * Measured, after a day of deploys: twenty-eight pages across two browsers, none of them being
+ * driven, one Chromium wedged badly enough that every run against it failed. So the count is bounded
+ * here. The cap is well above what everything above could plausibly hold at once, which is what makes
+ * closing the oldest safe: by the time there are more than this, the oldest are leftovers.
+ *
+ * This bounds the leak; it does not cure it. The cure is for a page to be closed by whoever opened it,
+ * including when that side dies, and that belongs on the other end of the wire.
+ */
+const PAGES_KEPT = 12;
+
+async function reapAbandonedPages(one: Running): Promise<void> {
+  const pages = one.context.pages();
+  if (pages.length <= PAGES_KEPT) return;
+
+  // Creation order, so the front of the list is the oldest.
+  const stale = pages.slice(0, pages.length - PAGES_KEPT);
+  await Promise.all(stale.map((page) => page.close().catch(() => undefined)));
+  warn('browser host: closed pages nobody was driving', { left: one.context.pages().length, closed: stale.length });
 }
 
 async function stop(profileDir: string): Promise<boolean> {

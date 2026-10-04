@@ -40,6 +40,23 @@ const HANDS = Math.max(1, Number(process.env['RATATOSK_WORKERS'] ?? 1));
 
 let stopping = false;
 
+/**
+ * A browser dying must not take the worker with it.
+ *
+ * patchright reacts to a session that has gone away on promises of its own, and a rejection there is
+ * nobody's await: Node makes it fatal, docker restarts the process, the browser is still gone, and a
+ * minute later it happens again. Measured on a live queue — the worker was restarting every sixty
+ * seconds over one wedged Chromium, and every other scraper's turn died with it. From outside that
+ * looks exactly like a pipeline that has quietly stopped collecting, which is the worst shape a
+ * failure can take: nothing in any scraper's history, because no run ever finished.
+ *
+ * So a stray rejection is written down and the loop carries on. The run it belonged to still ends as
+ * a failure in its own history, by the catch around the job, and the next run opens a fresh browser.
+ */
+process.on('unhandledRejection', (reason) => {
+  log('error', 'stray rejection', { why: message(reason) });
+});
+
 async function tick(): Promise<void> {
   const due = await claimDue();
   for (const one of due) {
