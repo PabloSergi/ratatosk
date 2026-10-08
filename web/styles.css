@@ -496,6 +496,27 @@ input.renaming {
   font-weight: 600;
 }
 
+/* Kind and health are two questions, so there is a gap and a line between them rather than one long
+   row where "broken" would read as a third sort of robot. */
+.tabs .tab-split {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 6px;
+  background: var(--edge);
+}
+
+/* The one tab that is a warning keeps the warning colour even when it is not the chosen one — the
+   count beside it is the thing the eye should land on. */
+.tabs .tab.state-broken { color: var(--broken); border-color: color-mix(in oklab, var(--broken) 35%, var(--edge)); }
+.tabs .tab.state-broken:hover:not(.on) { border-color: var(--broken); }
+.tabs .tab.state-broken.on {
+  border-color: var(--broken);
+  color: var(--broken);
+  background: linear-gradient(180deg, color-mix(in oklab, var(--broken) 14%, var(--surface-high)), var(--surface));
+}
+.tabs .tab.state-empty { color: var(--empty); border-color: color-mix(in oklab, var(--empty) 30%, var(--edge)); }
+.tabs .tab.state-empty.on { border-color: var(--empty); color: var(--empty); }
+
 /* --- tables ------------------------------------------------------------------------------- */
 
 table {

@@ -19,6 +19,7 @@ import {
   connectionCard,
   escapeHtml,
   kindTabs,
+  stateTabs,
   proxyCard,
   scraperCard,
   deletedList,
@@ -189,6 +190,8 @@ async function enter(kind: 'login' | 'register'): Promise<void> {
 // --- scrapers -------------------------------------------------------------------------------------
 
 let shownKind = 'all';
+/** Which health the list is narrowed to: 'all', or one of the states a run can end in. */
+let shownState = 'all';
 
 /** The scrapers as last listed. A card's buttons act on one of these, so they have to be to hand. */
 let known: RobotSummary[] = [];
@@ -241,18 +244,43 @@ async function loadScrapers(): Promise<void> {
     for (const scraper of scrapers) counts.set(scraper.kind, (counts.get(scraper.kind) ?? 0) + 1);
     if (shownKind !== 'all' && !counts.has(shownKind)) shownKind = 'all';
 
-    el('kinds').innerHTML =
-      counts.size > 1 ? kindTabs([...counts].map(([kind, count]) => ({ kind, count })), shownKind) : '';
-
     // …and how often it runs by itself, if the stack it is installed in can do that at all.
     const when = new Map(
       (await api.schedules().catch(() => ({ schedules: [] }))).schedules.map((one) => [one.scraper, one]),
     );
 
     // How each scraper is doing, fetched beside the list: a card that cannot say that is half a card.
+    // Read before the tabs are drawn, because one of them counts the troubled ones.
     const how = new Map((await api.history().catch(() => ({ standing: [] }))).standing.map((entry) => [entry.robot, entry]));
+    const stateOf = (name: string): string => how.get(name)?.status ?? 'ok';
 
-    const shown = shownKind === 'all' ? scrapers : scrapers.filter((scraper) => scraper.kind === shownKind);
+    const states = new Map<string, number>();
+    for (const scraper of scrapers) {
+      const state = stateOf(scraper.name);
+      if (state !== 'ok') states.set(state, (states.get(state) ?? 0) + 1);
+    }
+    if (shownState !== 'all' && !states.has(shownState)) shownState = 'all';
+
+    el('kinds').innerHTML =
+      (counts.size > 1 ? kindTabs([...counts].map(([kind, count]) => ({ kind, count })), shownKind) : '') +
+      stateTabs([...states].map(([state, count]) => ({ state, count })), shownState, scrapers.length);
+
+    const matching = scrapers.filter(
+      (scraper) =>
+        (shownKind === 'all' || scraper.kind === shownKind) &&
+        (shownState === 'all' || stateOf(scraper.name) === shownState),
+    );
+
+    /**
+     * Whatever is being looked at, what is broken comes first.
+     *
+     * A list of sixty-six scrapers in the order they were made buries the five that stopped working
+     * among the sixty-one that are fine, and the one line saying "5 need looking at" then has nowhere
+     * to point. Sorted by health, the answer to "which ones" is the top of the screen.
+     */
+    const rank = (name: string): number => ({ broken: 0, empty: 1 } as Record<string, number>)[stateOf(name)] ?? 2;
+    const shown = [...matching].sort((one, other) => rank(one.name) - rank(other.name));
+
     el('scrapers').innerHTML = shown.length
       ? shown
           .map((scraper) => scraperCard(scraper, how.get(scraper.name), probes.get(scraper.name), when.get(scraper.name)))
@@ -918,6 +946,13 @@ document.addEventListener('click', async (event) => {
   const kindTab = target.closest<HTMLElement>('.tab[data-kind]');
   if (kindTab) {
     shownKind = kindTab.dataset['kind'] ?? 'all';
+    void loadScrapers();
+    return;
+  }
+
+  const stateTab = target.closest<HTMLElement>('.tab[data-state]');
+  if (stateTab) {
+    shownState = stateTab.dataset['state'] ?? 'all';
     void loadScrapers();
     return;
   }

@@ -131,6 +131,30 @@ export function kindTabs(kinds: Array<{ kind: string; count: number }>, active: 
   return [tab('all', 'all', all), ...kinds.map((entry) => tab(entry.kind, entry.kind, entry.count))].join('');
 }
 
+/**
+ * The other question asked of the same list: not what a scraper reads, but whether it is still doing it.
+ *
+ * Kind and health are different axes, so they are different groups rather than one row of tabs where
+ * "broken" would sit among "web" and "api" as if it were a third sort of robot. The troubled ones are
+ * put at the top of the list whatever is chosen here — this is for looking at them alone.
+ *
+ * A state with nobody in it is not offered: a tab reading "broken 0" invites a click that changes
+ * nothing, and an empty list is a worse answer than no button.
+ */
+export function stateTabs(states: Array<{ state: string; count: number }>, active: string, total: number): string {
+  const offered = states.filter((entry) => entry.count > 0);
+  if (offered.length === 0) return '';
+
+  const tab = (state: string, label: string, count: number) =>
+    `<button class="tab state-${escapeHtml(state)}${state === active ? ' on' : ''}" data-state="${escapeHtml(state)}">` +
+    `${escapeHtml(label)} <span>${count}</span></button>`;
+
+  return (
+    '<span class="tab-split" aria-hidden="true"></span>' +
+    [tab('all', 'any state', total), ...offered.map((entry) => tab(entry.state, entry.state, entry.count))].join('')
+  );
+}
+
 
 /**
  * The same two things on every card: a way to ask "are you still working?", and the answer underneath.
