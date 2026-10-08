@@ -82,7 +82,10 @@ try {
     const path = await saveRobot(scenario, join('robots', 'u', userId));
     console.log(`saved ${path}`);
   } else {
-    console.log(`not saved: ${result.verdict?.reasons?.join('; ') ?? 'the bar was not cleared'}`);
+    // The verdict calls them complaints. Asking it for `reasons` printed the fallback every time,
+    // which turned every refusal into the same four words and hid the one thing worth reading.
+    console.log(`not saved: ${result.verdict?.complaints?.join('; ') ?? 'the bar was not cleared'}`);
+    if (result.verdict?.coverage) console.log(`  coverage: ${JSON.stringify(result.verdict.coverage)}`);
     process.exitCode = 1;
   }
 } finally {
