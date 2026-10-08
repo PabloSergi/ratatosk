@@ -57,6 +57,7 @@ import { InputError } from './errors.js';
 import { failure, info, log, warn } from './log.js';
 import { alertsFileFor, DEFAULT_AFTER, readAlerts, tell, viewAlerts, whatToSay, writeAlerts } from './alerts.js';
 import { forgetResults, harvestSince, keepResult, keptRuns, moveResults, readResult } from './results.js';
+import { listWaiting, park, unpark, waitingFileFor } from './waiting.js';
 import { forgetSchedule, moveSchedule, schedulesFor, setSchedule } from './schedule.js';
 import { enqueue, usingQueue, waiting } from './queue.js';
 import { usingDatabase } from './db.js';
@@ -907,6 +908,29 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
 
   /** What has been deleted and can still be had back. */
   '/api/robot/deleted': async (_body, user) => ({ deleted: await deletedRobots(robotsDirFor(user.id)) }),
+
+  /**
+   * Sources that stopped at a door meant for a person.
+   *
+   * Not robots — they have no selectors and have never returned a row — so they are listed apart,
+   * next to the one button that moves them on. Without this they were a line in whoever ran the
+   * build's output, which is to say gone.
+   */
+  '/api/waiting': async (_body, user) => ({ waiting: await listWaiting(waitingFileFor(user.id)) }),
+
+  '/api/waiting/park': async (body, user) => ({
+    waiting: await park(waitingFileFor(user.id), {
+      name: String(body['name'] ?? ''),
+      url: String(body['url'] ?? ''),
+      why: String(body['why'] ?? 'a door meant for a person'),
+      ...(body['want'] ? { want: String(body['want']) } : {}),
+      ...(body['proxy'] ? { proxy: String(body['proxy']) } : {}),
+    }),
+  }),
+
+  '/api/waiting/forget': async (body, user) => ({
+    waiting: await unpark(waitingFileFor(user.id), String(body['name'] ?? '')),
+  }),
 
   /**
    * Lift a deleted scraper back out. Its memory of what it had handed over went with the deletion on

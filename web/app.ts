@@ -20,6 +20,7 @@ import {
   escapeHtml,
   kindTabs,
   stateTabs,
+  waitingList,
   proxyCard,
   scraperCard,
   deletedList,
@@ -286,6 +287,11 @@ async function loadScrapers(): Promise<void> {
           .map((scraper) => scraperCard(scraper, how.get(scraper.name), probes.get(scraper.name), when.get(scraper.name)))
           .join('')
       : '<span class="muted">nothing of that kind yet</span>';
+
+    // A source that stopped at a check for humans is not a robot and not a failure — it is a minute of
+    // somebody's time. Shown here because the alternative was a sentence in a chat window.
+    const { waiting } = await api.waiting().catch(() => ({ waiting: [] }));
+    el('waiting').innerHTML = waitingList(waiting);
 
     // Deleting moves a scraper aside rather than destroying it, and that is worth nothing if the only
     // way to the corner it went into is a shell on the server.
@@ -961,6 +967,24 @@ document.addEventListener('click', async (event) => {
   if (kindTab) {
     shownKind = kindTab.dataset['kind'] ?? 'all';
     void loadScrapers();
+    return;
+  }
+
+  const door = target.closest<HTMLElement>('button[data-door]');
+  if (door?.dataset['door']) {
+    const done = busy(door as HTMLButtonElement, 'opening');
+    void openDoor(door.dataset['door'], door.dataset['door-proxy'] ?? door.dataset['doorProxy'], 'doorNote', door.dataset['doorName'])
+      .catch((error: unknown) => fail('doorNote', error))
+      .finally(done);
+    return;
+  }
+
+  const forget = target.closest<HTMLElement>('button[data-door-forget]');
+  if (forget?.dataset['doorForget']) {
+    void api
+      .forgetWaiting(forget.dataset['doorForget'])
+      .then(() => loadScrapers())
+      .catch((error: unknown) => fail('doorNote', error));
     return;
   }
 

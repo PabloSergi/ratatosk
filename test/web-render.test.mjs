@@ -14,6 +14,7 @@ import {
   stepsList,
   verdictBars,
   stateTabs,
+  waitingList,
 } from '../web/render.ts';
 
 /**
@@ -336,4 +337,22 @@ test('вкладки состояния: пустое состояние не п
   assert.ok(!some.includes('data-state="empty"'), '«empty 0» — это кнопка, которая ничего не меняет');
   assert.ok(some.includes('class="tab state-broken on"'), 'выбранное состояние подсвечено');
   assert.ok(some.includes('any state <span>66</span>'), 'и всегда есть путь обратно ко всем');
+});
+
+/**
+ * Эти семь источников были потеряны ровно потому, что о них негде было написать: агент упирался в
+ * проверку «вы человек?», ничего не сохранял, и единственной записью оставалась строчка в чате.
+ */
+test('источник за дверью показывается с кнопкой, а не словами в чате', () => {
+  assert.equal(waitingList([]), '', 'пусто — значит и заголовка нет');
+
+  const html = waitingList([
+    { name: 'liveshow-jobs', url: 'https://forum2.live-show.com/forum/15-poisk-raboty/', why: 'CHALLENGE PAGE', proxy: 'f77737ab', at: '2026-10-08T18:00:00Z' },
+  ]);
+
+  assert.ok(html.includes('liveshow-jobs'));
+  assert.ok(html.includes('data-door="https://forum2.live-show.com/forum/15-poisk-raboty/"'), 'кнопка несёт адрес');
+  assert.ok(html.includes('data-door-proxy="f77737ab"'), 'и тот же выход, иначе пропуск ляжет в чужой профиль');
+  assert.ok(html.includes('data-door-forget="liveshow-jobs"'));
+  assert.ok(html.includes('Waiting for you (1)'));
 });

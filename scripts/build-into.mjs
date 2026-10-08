@@ -15,6 +15,7 @@ import { buildWithModel } from '../dist/agent.js';
 import { openBrowser } from '../dist/drivers/patchright.js';
 import { findProxy, proxiesFileFor, toRunningBrowser } from '../dist/proxies.js';
 import { saveRobot } from '../dist/robots.js';
+import { park, waitingFileFor } from '../dist/waiting.js';
 import { activeConnection, settingsFileFor } from '../dist/settings.js';
 
 const args = process.argv.slice(2);
@@ -86,6 +87,23 @@ try {
     // which turned every refusal into the same four words and hid the one thing worth reading.
     console.log(`not saved: ${result.verdict?.complaints?.join('; ') ?? 'the bar was not cleared'}`);
     if (result.verdict?.coverage) console.log(`  coverage: ${JSON.stringify(result.verdict.coverage)}`);
+
+    /**
+     * A door is not a failure. The site is readable and the robot is buildable; what is missing is a
+     * person passing the check once, in the profile the scraper will use. Written down where the
+     * interface can show it — otherwise the source is lost in the output of whoever ran this.
+     */
+    const door = result.steps.find((step) => /CHALLENGE PAGE|anti-bot/i.test(String(step.result)));
+    if (door) {
+      await park(waitingFileFor(userId), {
+        name,
+        url,
+        why: String(door.result).split('—').slice(-1)[0]?.trim().slice(0, 140) || 'a door meant for a person',
+        ...(want ? { want } : {}),
+        ...(proxy ? { proxy: proxy.id } : {}),
+      });
+      console.log(`parked: ${name} is waiting for a person to pass the check`);
+    }
     process.exitCode = 1;
   }
 } finally {

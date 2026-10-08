@@ -92,6 +92,15 @@ async function post<T>(path: string, body: Record<string, unknown> = {}): Promis
   return data;
 }
 
+export interface WaitingSource {
+  name: string;
+  url: string;
+  want?: string;
+  why: string;
+  proxy?: string;
+  at: string;
+}
+
 export const api = {
   register: (email: string, password: string) => post<{ user: Account; token: string }>('/api/auth/register', { email, password }),
   login: (email: string, password: string) => post<{ user: Account; token: string }>('/api/auth/login', { email, password }),
@@ -139,6 +148,9 @@ export const api = {
   deletedScrapers: () =>
     post<{ deleted: Array<{ file: string; name: string; kind: string; at: string }> }>('/api/robot/deleted'),
   restoreScraper: (file: string) => post<{ restored: string }>('/api/robot/restore', { file }),
+  /** Sources that stopped at a door meant for a person, and the two things one can do about them. */
+  waiting: () => post<{ waiting: WaitingSource[] }>('/api/waiting'),
+  forgetWaiting: (name: string) => post<{ waiting: WaitingSource[] }>('/api/waiting/forget', { name }),
   schedules: () =>
     post<{ schedules: Schedule[]; waiting?: number; off?: string }>('/api/schedules'),
   setSchedule: (name: string, everyMinutes: number) =>

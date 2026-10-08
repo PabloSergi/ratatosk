@@ -321,6 +321,42 @@ export function scraperCard(
  * Shown only when there is something to show: a permanent "nothing deleted" heading is furniture. A
  * deletion is not undone by remembering to keep the file — it is undone by being able to reach it.
  */
+/**
+ * The sources that are one human minute away from being robots.
+ *
+ * They are shown above the deleted ones and below the working ones because that is their order of
+ * interest: these are not broken and not gone, they are waiting on the one thing a program must not
+ * do by itself. Each carries the address it stopped at and the way out it was using, so the pass
+ * lands in the profile the scraper will actually read from.
+ */
+export function waitingList(
+  waiting: Array<{ name: string; url: string; why: string; proxy?: string; at: string }>,
+): string {
+  if (!waiting.length) return '';
+
+  const rows = waiting
+    .map(
+      (one) =>
+        `<div class="item"><div class="item-main"><b>${escapeHtml(one.name)}</b> ` +
+        `<span class="kind">door</span>` +
+        `<div class="meta">${escapeHtml(one.url)}</div>` +
+        `<div class="meta broken">${escapeHtml(one.why)}</div></div>` +
+        `<div class="row">` +
+        `<button data-door="${escapeHtml(one.url)}" data-door-name="${escapeHtml(one.name)}"` +
+        `${one.proxy ? ` data-door-proxy="${escapeHtml(one.proxy)}"` : ''}>Open it myself</button>` +
+        `<button data-door-forget="${escapeHtml(one.name)}">Forget</button>` +
+        `</div></div>`,
+    )
+    .join('');
+
+  return (
+    `<h2 class="spaced">Waiting for you (${waiting.length})</h2>` +
+    `<p class="meta">A check that asks whether you are a person. Open it, pass it once, and finish with
+     <b>Save and close</b> — the pass stays in the profile and the scraper can be built.</p>` +
+    `<div id="doorNote" hidden class="spaced"></div>${rows}`
+  );
+}
+
 export function deletedList(deleted: Array<{ file: string; name: string; kind: string; at: string }>): string {
   if (!deleted.length) return '';
 
