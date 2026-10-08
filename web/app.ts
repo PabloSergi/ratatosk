@@ -721,10 +721,24 @@ el('proxyAdd').addEventListener('click', async () => {
 async function loadRuns(): Promise<void> {
   try {
     const { standing } = await api.history();
-    const broken = standing.filter((entry) => entry.status !== 'ok');
+
+    /**
+     * Two different troubles, counted apart.
+     *
+     * They used to be added together under the word "broken", and the tabs below then said "broken 1"
+     * under a line reading "5 need looking at" — both right, and together nonsense. A scraper that
+     * threw is a scraper to fix; a scraper that came back with nothing may be a quiet source or a
+     * rule that eats everything. Saying which is which is the whole value of the line.
+     */
+    const broken = standing.filter((entry) => entry.status === 'broken');
+    const quiet = standing.filter((entry) => entry.status !== 'ok' && entry.status !== 'broken');
+    const outOf = `of ${standing.length} that have run`;
+
     el('runsStatus').innerHTML = standing.length
       ? broken.length
-        ? `${badge('broken')} ${broken.length} of ${standing.length} scrapers need looking at`
+        ? `${badge('broken')} ${broken.length} broken${quiet.length ? `, ${quiet.length} came back empty` : ''} — ${outOf}`
+        : quiet.length
+        ? `${badge('empty')} nothing broken — ${quiet.length} came back empty, ${outOf}`
         : `${badge('ok')} all ${standing.length} scrapers came back with rows`
       : '<span class="muted">nothing has run yet</span>';
   } catch (error) {
