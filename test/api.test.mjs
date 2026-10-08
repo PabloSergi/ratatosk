@@ -224,3 +224,50 @@ test('a feed that says no total is asked once, not paged', async () => {
   assert.equal(run.rows.length, 100);
   assert.equal(run.rows[0].title, 'post 0');
 });
+
+/**
+ * Доска со счётчиком обходится, лента без счётчика спрашивается один раз — и во втором случае
+ * описание страниц источнику не нужно. Иначе мы шлём чужому API два параметра, которых он не просил,
+ * на каждом вызове.
+ */
+test('без счётчика роботу не нужна и разбивка на страницы', async () => {
+  const asked = [];
+  const ask = async (href) => {
+    asked.push(href);
+    return { jobs: [{ id: 'a', title: 'Chatter' }, { id: 'b', title: 'Editor' }] };
+  };
+
+  const robot = {
+    name: 'board', version: 1, source: 'api',
+    url: 'https://boards.test/v1/jobs?content=true',
+    rowsAt: 'jobs',
+    identity: 'id',
+    fields: { title: 'title' },
+  };
+
+  const run = await runApiRobot(robot, ask);
+
+  assert.equal(asked.length, 1);
+  assert.equal(asked[0], 'https://boards.test/v1/jobs?content=true', 'адрес ушёл как есть, без дописанных параметров');
+  assert.equal(run.rows.length, 2);
+});
+
+/** Lever, Breezy и WordPress отвечают голым массивом: «строки лежат нигде» должно быть выразимо. */
+test('источник, который отвечает просто массивом, читается через rowsAt "."', async () => {
+  const robot = {
+    name: 'bare', version: 1, source: 'api',
+    url: 'https://api.test/postings',
+    rowsAt: '.',
+    identity: 'id',
+    fields: { title: 'text', link: 'hostedUrl' },
+  };
+
+  const run = await runApiRobot(robot, async () => [
+    { id: 'one', text: 'Chatter', hostedUrl: 'https://jobs.test/one' },
+    { id: 'two', text: 'Editor', hostedUrl: 'https://jobs.test/two' },
+  ]);
+
+  assert.equal(run.rows.length, 2);
+  assert.equal(run.rows[0].title, 'Chatter');
+  assert.equal(run.rows[1].link, 'https://jobs.test/two');
+});

@@ -40,8 +40,13 @@ export interface ApiRobot {
    * them to page into. Leaving this out says so, and the walk is a single call.
    */
   totalAt?: string;
-  /** How the source pages: the offset parameter, and how many rows it will give at once. */
-  page: { param: string; sizeParam: string; size: number };
+  /**
+   * How the source pages: the offset parameter, and how many rows it will give at once.
+   *
+   * Only wanted alongside `totalAt`. A source that is asked once is not paged, and describing paging
+   * for it means sending a board's own API two parameters it never asked for on every call.
+   */
+  page?: { param: string; sizeParam: string; size: number };
   /**
    * The window to cut when the count hits the cap. `param` is sent as "from-to", which is how these
    * boards spell a range; `cap` is the number the source refuses to page past AND clamps its total to.
@@ -121,18 +126,32 @@ export function parseApiRobot(data: unknown): ApiRobot {
   const name = robot?.name ?? 'robot';
   if (!/^https?:\/\//.test(robot?.url ?? '')) throw new InputError(`${name}: url must be http(s)`);
   if (!robot.rowsAt) throw new InputError(`${name}: rowsAt is required`);
-  if (!robot.page?.param || !robot.page?.sizeParam) throw new InputError(`${name}: page needs param and sizeParam`);
+  if (robot.totalAt && (!robot.page?.param || !robot.page?.sizeParam)) {
+    throw new InputError(`${name}: a source with a count is walked, and walking needs page.param and page.sizeParam`);
+  }
   if (!robot.identity) throw new InputError(`${name}: identity is required — without it halves double`);
   if (!robot.fields || Object.keys(robot.fields).length === 0) throw new InputError(`${name}: no fields to read`);
   if (robot.window && robot.window.to <= robot.window.from) throw new InputError(`${name}: window is empty`);
-  return { ...robot, version: 1, source: 'api', page: { ...robot.page, size: robot.page.size ?? 50 } };
+  return {
+    ...robot,
+    version: 1,
+    source: 'api',
+    ...(robot.page ? { page: { ...robot.page, size: robot.page.size ?? 50 } } : {}),
+  };
 }
 
 export type Row = Record<string, string | null>;
 export type AskJson = (url: string) => Promise<unknown>;
 
-/** One value out of a row. `a.b` walks objects; `a[].b` takes b from every entry of an array. */
+/**
+ * One value out of a row. `a.b` walks objects; `a[].b` takes b from every entry of an array.
+ *
+ * `.` is the answer itself, because plenty of boards do not wrap their list in anything: Lever,
+ * Breezy and WordPress all answer with a bare array, and "the rows are at nowhere in particular" has
+ * to be sayable.
+ */
 export function pluck(row: unknown, path: string): unknown {
+  if (path === '.' || path === '') return row;
   let here: unknown = row;
   for (const step of path.split('.')) {
     if (here === null || here === undefined) return undefined;
@@ -198,7 +217,7 @@ export async function runApiRobot(robot: ApiRobot, ask: AskJson): Promise<ApiRun
 
   const countOf = async (window?: Record<string, string>): Promise<number> => {
     state.calls++;
-    const answer = await ask(at({ ...window, [robot.page.sizeParam]: 1, [robot.page.param]: 0 }));
+    const answer = await ask(at({ ...window, [robot.page!.sizeParam]: 1, [robot.page!.param]: 0 }));
     return Number(pluck(answer, robot.totalAt!) ?? 0);
   };
 
@@ -211,7 +230,9 @@ export async function runApiRobot(robot: ApiRobot, ask: AskJson): Promise<ApiRun
    */
   const takeOnce = async (): Promise<void> => {
     state.calls++;
-    const answer = await ask(at({ [robot.page.sizeParam]: robot.page.size, [robot.page.param]: 0 }));
+    const answer = await ask(
+      at(robot.page ? { [robot.page.sizeParam]: robot.page.size, [robot.page.param]: 0 } : {}),
+    );
     const batch = pluck(answer, robot.rowsAt);
     if (!Array.isArray(batch)) {
       state.notes.push(`nothing is at ${robot.rowsAt} in the answer`);
@@ -227,7 +248,7 @@ export async function runApiRobot(robot: ApiRobot, ask: AskJson): Promise<ApiRun
     let offset = 0;
     while (offset < total && state.calls < ceiling) {
       state.calls++;
-      const answer = await ask(at({ ...window, [robot.page.sizeParam]: robot.page.size, [robot.page.param]: offset }));
+      const answer = await ask(at({ ...window, [robot.page!.sizeParam]: robot.page!.size, [robot.page!.param]: offset }));
       const batch = pluck(answer, robot.rowsAt);
       if (!Array.isArray(batch) || batch.length === 0) return;
       for (const one of batch) {

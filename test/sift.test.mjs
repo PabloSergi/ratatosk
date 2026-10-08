@@ -294,3 +294,25 @@ test('what a rule threw away is handed back as it came in, fields and all', () =
   assert.equal(result.rows[0].pay, '1500 EUR');
   assert.ok(!result.discarded.some((row) => /operator needed/.test(row.text)), 'a kept row is not discarded');
 });
+
+/**
+ * Ловушка, которая тихо ломала правило: строка несёт свою ссылку, а форум кладёт тему в адрес. Из-за
+ * этого `onlyfans` в keep совпадал с АДРЕСОМ каждой строки раздела onlyfans-vacancies, и правило
+ * оставляло всё подряд. Поэтому список колонок — не удобство, а способ мерить пост, а не его адрес.
+ */
+test('from списком читает только названные колонки, а не ссылку', () => {
+  const rows = [
+    { title: 'Ищем чаттеров', link: 'https://datingforum.com.ua/threads/onlyfans-chatters.1/', text: 'в команду' },
+    { title: 'Продам базу', link: 'https://datingforum.com.ua/threads/onlyfans-base.2/', text: 'дорого' },
+  ];
+
+  const everywhere = sift(rows, { keep: ['onlyfans'] });
+  assert.equal(everywhere.kept, 2, 'по всем колонкам совпадает адрес, и правило бесполезно');
+
+  const named = sift(rows, { keep: ['onlyfans'], from: ['title', 'text'] });
+  assert.equal(named.kept, 0, 'а по названным колонкам — ровно то, что написал человек');
+
+  const both = sift(rows, { keep: ['чаттер'], from: ['title', 'text'] });
+  assert.equal(both.kept, 1);
+  assert.equal(both.rows[0].title, 'Ищем чаттеров');
+});

@@ -70,7 +70,8 @@ export type FieldRule =
 export interface SiftRule {
   keep: string[];
   drop?: string[];
-  from?: string;
+  /** One column, or exactly these columns. See `Sift` in sift.ts, which this mirrors. */
+  from?: string | string[];
   fields?: Record<string, { pattern: string; from?: string }>;
 }
 

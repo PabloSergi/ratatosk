@@ -21,8 +21,15 @@ export interface Sift {
   keep: string[];
   /** …unless it matches one of these. Checked after keep, so a drop always wins. */
   drop?: string[];
-  /** Which column the patterns read. Defaults to every column joined together. */
-  from?: string;
+  /**
+   * Which column the patterns read. Defaults to every column joined together.
+   *
+   * A list reads exactly those, which matters more than it sounds: a row carries its own link, and a
+   * forum puts the topic in the slug, so `onlyfans` in a keep quietly matched the ADDRESS of every
+   * row in a forum called onlyfans-vacancies and the rule kept everything. Naming the columns a rule
+   * reads is the difference between measuring a post and measuring where it lives.
+   */
+  from?: string | string[];
   /**
    * Fields read out of the text itself: pay, a contact, a city. The first capturing group is the
    * value, or the whole match when the pattern has no group.
@@ -72,7 +79,8 @@ function compile(patterns: string[]): RegExp[] {
   });
 }
 
-function textOf(row: Row, from?: string): string {
+function textOf(row: Row, from?: string | string[]): string {
+  if (Array.isArray(from)) return from.map((column) => String(row[column] ?? '')).join('  ');
   if (from) return String(row[from] ?? '');
   return Object.values(row)
     .filter((value): value is string => typeof value === 'string')
