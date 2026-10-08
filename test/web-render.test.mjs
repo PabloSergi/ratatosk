@@ -13,6 +13,7 @@ import {
   rowsTable,
   stepsList,
   verdictBars,
+  stateTabs,
 } from '../web/render.ts';
 
 /**
@@ -324,4 +325,15 @@ test('a card says "nothing new" rather than boasting of zero rows', () => {
   assert.match(quiet, /nothing new/);
   assert.doesNotMatch(quiet, /0 rows/, '"0 rows" is what a broken scraper says');
   assert.match(quiet, /seen before/, 'and why there was nothing new is still there to read');
+});
+
+test('вкладки состояния: пустое состояние не предлагается', () => {
+  assert.equal(stateTabs([], 'all', 66), '', 'когда всё цело, фильтровать нечего и кнопок нет');
+
+  const some = stateTabs([{ state: 'broken', count: 5 }, { state: 'empty', count: 0 }], 'broken', 66);
+  assert.ok(some.includes('data-state="broken"'));
+  assert.ok(some.includes('>broken <span>5</span>'));
+  assert.ok(!some.includes('data-state="empty"'), '«empty 0» — это кнопка, которая ничего не меняет');
+  assert.ok(some.includes('class="tab state-broken on"'), 'выбранное состояние подсвечено');
+  assert.ok(some.includes('any state <span>66</span>'), 'и всегда есть путь обратно ко всем');
 });
