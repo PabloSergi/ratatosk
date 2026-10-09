@@ -114,8 +114,12 @@ export async function runForAccount(userId: string, name: string, options: RunOp
   const get = feedProxy ? await through((await findProxy(proxiesFileFor(userId), feedProxy))?.url ?? '') : undefined;
   const askJson = get ? asker(headers, get) : Object.keys(headers).length > 0 ? asker(headers) : undefined;
 
+  // Несколько лент, нацеленных на один и тот же поток, отдают пост один раз на всех.
+  const sharing = (robot as { remember?: { with?: string } }).remember?.with;
+
   const asked = {
     rules: options.rules,
+    ...(sharing ? { together: { userId, group: sharing } } : {}),
     ...(maxPages ? { maxPages } : {}),
     telegramSession,
     ...(memory ? { memory } : {}),

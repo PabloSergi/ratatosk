@@ -7,6 +7,7 @@ import { fieldsOf, judgeSift, sift, type Sift } from './sift.js';
 import { isTelegramRobot, runTelegramRobot } from './telegram.js';
 import { asker, deepen, isApiRobot, runApiRobot, type AskJson } from './api.js';
 import { isFeedRobot, runFeedRobot } from './feed.js';
+import { claim } from './together.js';
 import { direct, type Get } from './through.js';
 import { maskRow } from './mask.js';
 
@@ -39,6 +40,8 @@ export async function runRobot(
     askJson?: AskJson;
     /** How a feed is fetched — named so a robot that needs a proxy can be given one. */
     get?: Get;
+    /** Who this scraper hands over with, when several are pointed at one pool of postings. */
+    together?: { userId: string; group: string };
     /**
      * Somewhere to write down everything this pass saw, before the memory decides what is new.
      * That is what a catalogue is made of, and it cannot be reconstructed from what was handed on.
@@ -67,7 +70,7 @@ export async function runRobot(
       };
     }
     await options.saw?.(sifted.rows);
-    const seen = await remember(sifted.rows, robot.remember, options.memory, identityOfMessage);
+    const seen = await remember(sifted.rows, robot.remember, options.memory, identityOfMessage, options.together);
     if (seen.rows.length === 0 && seen.note) {
       // Everything that came was something we already had. That is not an empty channel and not a
       // broken robot — it is a quiet day, and it must not read like either.
@@ -101,7 +104,7 @@ export async function runRobot(
 
     const sifted = applySift(feed.rows, (robot as { sift?: Sift }).sift);
     await options.saw?.(sifted.rows);
-    const seen = await remember(sifted.rows, robot.remember, options.memory);
+    const seen = await remember(sifted.rows, robot.remember, options.memory, undefined, options.together);
     const why = [feed.reason, sifted.note, seen.note].filter(Boolean).join('; ');
     if (seen.rows.length === 0 && seen.note) {
       // Everything the feed held had already been handed over. A quiet hour, not a dead source.
@@ -130,7 +133,7 @@ export async function runRobot(
 
     const sifted = applySift(feed.rows, robot.sift as Sift | undefined);
     await options.saw?.(sifted.rows);
-    const seen = await remember(sifted.rows, robot.remember, options.memory);
+    const seen = await remember(sifted.rows, robot.remember, options.memory, undefined, options.together);
     const why = [feed.reason, sifted.note, seen.note].filter(Boolean).join('; ');
     if (seen.rows.length === 0 && seen.note) {
       return { status: 'empty', quiet: true, rows: [], pagesVisited: 1, reason: why };
@@ -202,7 +205,7 @@ export async function runRobot(
     return { ...run, status: 'empty', rows: [], reason: `the sift kept none of the ${run.rows.length} rows` };
   }
 
-  const seen = await remember(sifted.rows, robot.remember, options.memory);
+  const seen = await remember(sifted.rows, robot.remember, options.memory, undefined, options.together);
   const spared = run.evidence?.rowsKnownAlready;
   const reason = [sifted.note, seen.note, spared ? `${spared} already read were not opened again` : undefined]
     .filter(Boolean)
@@ -227,6 +230,8 @@ async function remember(
   memory: { seen: Record<string, Seen>; save: (memory: Record<string, Seen>) => Promise<void> } | undefined,
   /** What identifies a row from this source. See `identityOfMessage` for why a channel differs. */
   identify?: (row: Row, by?: string) => string | undefined,
+  /** Who this scraper hands over with, when it shares a pool of postings with others. */
+  together?: { userId: string; group: string },
 ): Promise<{ rows: Array<Record<string, string | null>>; note?: string }> {
   if (!rule || !memory) return { rows };
 
@@ -248,7 +253,28 @@ async function remember(
     return { rows: marked, ...(note ? { note } : {}) };
   }
 
-  return { rows: sighting.fresh, ...(note ? { note } : {}) };
+  if (!together) return { rows: sighting.fresh, ...(note ? { note } : {}) };
+
+  /**
+   * The second gate: of what is new to this scraper, only what nobody in its group has passed on.
+   *
+   * Asked after its own memory rather than instead of it, because the two answer different
+   * questions — and asked only about rows that would otherwise go out, so a group's store grows with
+   * what was handed over and not with everything anybody ever saw.
+   */
+  const keyed = sighting.fresh.map((row) => ({ row, key: (identify ?? identity)(row, rule.by) }));
+  const mine = await claim({
+    userId: together.userId,
+    group: together.group,
+    keys: keyed.map((one) => one.key).filter((key): key is string => Boolean(key)),
+  });
+  const alone = keyed.filter((one) => !one.key || mine.has(one.key));
+  const taken = keyed.length - alone.length;
+
+  const both = [note, taken ? `${taken} already handed over by ${together.group}` : undefined]
+    .filter(Boolean)
+    .join('; ');
+  return { rows: alone.map((one) => one.row), ...(both ? { note: both } : {}) };
 }
 
 /**

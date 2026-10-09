@@ -87,6 +87,16 @@ CREATE TABLE IF NOT EXISTS passes (
   started_at TIMESTAMPTZ NOT NULL,
   PRIMARY KEY (user_id, scraper)
 );
+
+-- What a group of scrapers has already passed on. The primary key is the whole point: claiming is
+-- one statement, and two runs racing for the same posting cannot both win it.
+CREATE TABLE IF NOT EXISTS handed (
+  user_id TEXT        NOT NULL,
+  grp     TEXT        NOT NULL,
+  key     TEXT        NOT NULL,
+  at      TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (user_id, grp, key)
+);
 `;
 
 export async function db(): Promise<Pool> {

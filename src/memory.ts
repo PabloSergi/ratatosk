@@ -41,6 +41,16 @@ export interface Remember {
    * counts the repeats, for somebody who wants the whole picture every time.
    */
   mode?: 'new' | 'all';
+  /**
+   * Hand over WITH these other scrapers: a name they all share.
+   *
+   * For several scrapers deliberately pointed at one pool of postings from different angles — a
+   * subreddit read directly, and the same subreddit caught again by a search across all of Reddit.
+   * The first of them to meet a posting passes it on; the rest see it is spoken for. Each still
+   * keeps its own memory: "have I seen this" and "has anybody handed this on" are different
+   * questions. See together.ts.
+   */
+  with?: string;
 }
 
 export interface Seen {
