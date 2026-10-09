@@ -114,20 +114,37 @@ export async function runForAccount(userId: string, name: string, options: RunOp
   const get = feedProxy ? await through((await findProxy(proxiesFileFor(userId), feedProxy))?.url ?? '') : undefined;
   const askJson = get ? asker(headers, get) : Object.keys(headers).length > 0 ? asker(headers) : undefined;
 
+  const asked = {
+    rules: options.rules,
+    ...(maxPages ? { maxPages } : {}),
+    telegramSession,
+    ...(memory ? { memory } : {}),
+    ...(saw ? { saw } : {}),
+    ...(askJson ? { askJson } : {}),
+    ...(get ? { get } : {}),
+  };
+
   let run: RunResult;
   try {
-    run = await options.pool.use(poolKey(userId, isBrowserRobot(robot) ? robot.proxy : undefined), (session) =>
-      runRobot(robot, {
-        page: async () => session.page,
-        rules: options.rules,
-        ...(maxPages ? { maxPages } : {}),
-        telegramSession,
-        ...(memory ? { memory } : {}),
-        ...(saw ? { saw } : {}),
-        ...(askJson ? { askJson } : {}),
-        ...(get ? { get } : {}),
-      }),
-    );
+    /**
+     * A robot that does not read pages must not wait on a browser, nor fail with one.
+     *
+     * The pool opens a session before it hands one over, so asking it for a slot opened a Chromium
+     * for every Telegram read and every feed — which cost a second each and, worse, tied them to the
+     * health of a browser they never touched: a wedged Chromium took down a run that was about to
+     * fetch one URL over HTTPS. Measured while a batch of feeds died one after another behind a
+     * browser that had gone bad an hour earlier.
+     */
+    run = isBrowserRobot(robot)
+      ? await options.pool.use(poolKey(userId, robot.proxy), (session) =>
+          runRobot(robot, { page: async () => session.page, ...asked }),
+        )
+      : await runRobot(robot, {
+          page: async () => {
+            throw new Error(`${robot.name} does not read pages, so it has no browser to give`);
+          },
+          ...asked,
+        });
   } catch (error) {
     run = {
       status: 'broken',
