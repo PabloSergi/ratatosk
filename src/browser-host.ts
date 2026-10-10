@@ -197,13 +197,19 @@ async function browserFor(profileDir: string, proxyUrl?: string): Promise<Runnin
  *
  * Measured, after a day of deploys: twenty-eight pages across two browsers, none of them being
  * driven, one Chromium wedged badly enough that every run against it failed. So the count is bounded
- * here. The cap is well above what everything above could plausibly hold at once, which is what makes
- * closing the oldest safe: by the time there are more than this, the oldest are leftovers.
+ * here. Closing the oldest is safe because by the time there are more than this, the oldest are
+ * leftovers — nothing on this side is holding that many at once.
+ *
+ * The number is what a page COSTS, not what a caller might want. A loaded page is about half a
+ * gigabyte, so twelve of them is six — the whole of this container's allowance, and the browser then
+ * sits pinned at its limit while everything else on the host swaps. That is not a Ratatosk problem
+ * on its own and it is a bad neighbour: a translation service on the same machine, with its own
+ * memory and its own limit, took ten minutes over a batch of twenty-four and timed out.
  *
  * This bounds the leak; it does not cure it. The cure is for a page to be closed by whoever opened it,
  * including when that side dies, and that belongs on the other end of the wire.
  */
-const PAGES_KEPT = 12;
+const PAGES_KEPT = 4;
 
 async function reapAbandonedPages(one: Running): Promise<void> {
   const pages = one.context.pages();
