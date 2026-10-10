@@ -29,6 +29,18 @@ export interface TelegramRobot {
   limit: number;
   /** Optional case-insensitive substrings; a message must contain one of them to count. */
   contains?: string[];
+  /**
+   * Nothing older than this moment, as an ISO date.
+   *
+   * A channel added today carries years of archive, and a robot without this hands all of it over on
+   * its first run: thousands of postings, every one of them stale, through whatever reads us. Set
+   * when the source is added, it makes the first run mean "from now on" — which is what adding a
+   * source is usually meant to mean.
+   *
+   * It is also cheaper than filtering afterwards: messages arrive newest first, so the walk stops at
+   * the boundary instead of reading the archive and throwing it away.
+   */
+  since?: string;
   /** Which messages count, and what to read out of them. Built once by a model, run by regex. */
   sift?: SiftRule;
   /** Whether to hand back only what has not been seen before. A bot reposting is not news. */
@@ -329,10 +341,21 @@ export interface TelegramRow extends Record<string, string | null> {
  * Read the recent messages of each channel. Groups included — that is the whole point of coming in
  * through a client instead of a page.
  */
+/** What this needs of a Telegram client, so the walk can be shown a made-up one in a test. */
+export interface Reader {
+  connect(): Promise<unknown>;
+  disconnect(): Promise<unknown>;
+  getEntity(channel: string): Promise<unknown>;
+  iterMessages(entity: unknown, options: { limit: number }): AsyncIterable<{ id: number; date: number; message?: string }>;
+}
+
 export async function runTelegramRobot(
   robot: TelegramRobot,
   file?: SessionFile,
+  instead?: { client: Reader },
 ): Promise<{ rows: TelegramRow[]; reason?: string }> {
+  if (instead) return walk(robot, instead.client);
+
   const stored = await readStored(file);
   if (!stored) {
     return { rows: [], reason: 'no Telegram account is connected — connect one in the Telegram section first' };
@@ -341,15 +364,24 @@ export async function runTelegramRobot(
   const client = new TelegramClient(new StringSession(stored.session), stored.apiId, stored.apiHash, {
     connectionRetries: 3,
   });
+  return walk(robot, client as unknown as Reader);
+}
+
+async function walk(robot: TelegramRobot, client: Reader): Promise<{ rows: TelegramRow[]; reason?: string }> {
   await client.connect();
 
   try {
     const rows: TelegramRow[] = [];
     const wanted = (robot.contains ?? []).map((word) => word.toLowerCase());
 
+    const boundary = robot.since ? Date.parse(robot.since) : undefined;
+
     for (const channel of robot.channels) {
       const entity = await client.getEntity(channel);
       for await (const message of client.iterMessages(entity, { limit: robot.limit })) {
+        // Newest first, so the first message past the boundary ends this channel rather than
+        // skipping one of many.
+        if (boundary !== undefined && message.date * 1000 < boundary) break;
         const text = (message.message ?? '').trim();
         if (!text) continue;
         if (wanted.length && !wanted.some((word) => text.toLowerCase().includes(word))) continue;

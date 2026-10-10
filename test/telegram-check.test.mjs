@@ -71,3 +71,38 @@ test('checking an account that was never connected writes nothing at all', async
   await rememberTelegramCheck(missing, { at: '2026-08-27T09:00:00.000Z', ok: true, note: 'fine' });
   assert.equal((await telegramStatus(missing)).connected, false);
 });
+
+/**
+ * Канал, заведённый сегодня, несёт годы архива. Без отсечки первый же прогон отдаёт его целиком —
+ * тысячи протухших объявлений в то, что нас читает.
+ */
+test('since обрывает чтение на границе, а не фильтрует после', async () => {
+  const { runTelegramRobot } = await import('../src/telegram.ts');
+  const day = 864e5;
+  const now = Date.now();
+  const made = [
+    { id: 3, date: Math.floor((now - day) / 1000), message: 'свежая вакансия' },
+    { id: 2, date: Math.floor((now - 40 * day) / 1000), message: 'старое объявление' },
+    { id: 1, date: Math.floor((now - 400 * day) / 1000), message: 'древнее объявление' },
+  ];
+  let asked = 0;
+
+  const fake = {
+    connect: async () => undefined,
+    disconnect: async () => undefined,
+    getEntity: async () => ({}),
+    iterMessages: async function* () {
+      for (const m of made) { asked++; yield m; }
+    },
+  };
+
+  const rows = await runTelegramRobot(
+    { name: 'c', version: 1, source: 'telegram', channels: ['x'], limit: 100, since: new Date(now - 7 * day).toISOString() },
+    undefined,
+    { client: fake },
+  );
+
+  assert.equal(rows.rows.length, 1, 'только то, что новее границы');
+  assert.equal(rows.rows[0].text, 'свежая вакансия');
+  assert.equal(asked, 2, 'чтение оборвалось на первом старом, архив не вычитывался');
+});
