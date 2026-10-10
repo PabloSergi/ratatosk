@@ -229,7 +229,7 @@ export const api = {
   telegramSignIn: (phone: string, code: string, password: string) =>
     post<{ account: string; id: string; accounts: TelegramAccount[] }>('/api/telegram/sign-in', { phone, code, password }),
   telegramForget: (id: string) => post<{ accounts: TelegramAccount[] }>('/api/telegram/forget', { id }),
-  telegramRobot: (input: { channels: string; name: string; limit: number; contains: string; want: string; account?: string }) =>
+  telegramRobot: (input: { channels: string; name: string; limit: number; contains: string; want: string; account?: string; fromToday: boolean }) =>
     post<{
       saved: string[];
       /** One per channel: several groups behind one scraper hide each other's silence. */

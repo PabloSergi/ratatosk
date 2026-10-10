@@ -516,6 +516,7 @@ el('tgCreate').addEventListener('click', async () => {
       contains: value('tgContains'),
       want: value('tgWant'),
       account: value('tgAccount') || undefined,
+      fromToday: el<HTMLInputElement>('tgFromToday').checked,
     });
 
     // One per channel, and the answer says so — somebody who typed four names and got four scrapers

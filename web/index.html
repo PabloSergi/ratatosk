@@ -81,8 +81,14 @@
         <select id="tgAccount"></select>
         <input type="text" id="tgLimit" placeholder="messages" value="100" class="tiny">
         <input type="text" id="tgContains" placeholder="or just a word it must contain">
+        <label class="meta ticked" for="tgFromToday"><input type="checkbox" id="tgFromToday" checked> from today</label>
         <button class="primary" id="tgCreate">Create scraper</button>
       </div>
+      <p class="meta">
+        <b>From today</b> takes what is posted from now on. A channel carries years of archive, and
+        without this the first run hands over all of it — thousands of postings, every one of them
+        stale. Clear it only when the archive is what you came for.
+      </p>
       <p class="meta">
         A channel decides nothing about what a message is: postings, CVs, someone selling accounts and
         someone saying “up” arrive through the same pipe. Say what you are after and the model reads a

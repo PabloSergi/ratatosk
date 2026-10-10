@@ -1114,6 +1114,19 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
       .map((word) => word.trim())
       .filter(Boolean);
 
+    /**
+     * From today, or from the beginning of the channel.
+     *
+     * A channel added today carries years of archive, and taking it whole means a first run that
+     * hands over thousands of stale postings. Adding a source usually means "from now on", so that
+     * is what the box says — and it is a box rather than a date, because the only moment anybody
+     * actually wants is the one they are adding it in.
+     */
+    const fromToday = body['fromToday'] !== false;
+    const midnight = new Date();
+    midnight.setUTCHours(0, 0, 0, 0);
+    const since = fromToday ? midnight.toISOString() : undefined;
+
     const robots = channels.map((channel) =>
       parseTelegramRobot({
         // A name is what you look for in a list of thirty, so it says which channel this is. One
@@ -1125,6 +1138,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
         channels: [channel],
         limit,
         contains,
+        ...(since ? { since } : {}),
       }),
     );
 
