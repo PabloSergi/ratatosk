@@ -83,7 +83,10 @@ test('429 переспрашивается, а не хоронит робота 
   let asked = 0;
   const get = async () => {
     asked++;
-    return asked < 3 ? { status: 429, statusText: 'Too Many Requests', body: '' } : { status: 200, statusText: 'OK', body: ATOM };
+    // С просьбой подождать чуть-чуть: без неё отступ на 429 теперь минута, и тест ждал бы её по-настоящему.
+    return asked < 3
+      ? { status: 429, statusText: 'Too Many Requests', body: '', headers: { 'retry-after': '0.05' } }
+      : { status: 200, statusText: 'OK', body: ATOM };
   };
 
   const run = await runFeedRobot({ name: 'x', version: 1, source: 'feed', url: 'https://x.test/f.rss' }, get);
@@ -102,4 +105,29 @@ test('а отказ по существу — это поломка, и спра
     /403 Blocked/,
   );
   assert.equal(asked, 1, 'один раз, потому что 403 — это ответ, а не занятость');
+});
+
+/**
+ * Отступ удвоением от четырёхсот миллисекунд спасает от таймаута и бесполезен против лимита частоты:
+ * источник, которому нужна минута, прямо об этом говорит, а пять попыток внутри семи секунд — это
+ * пять новых отказов. Замерено на лентах reddit: один вызов в пять минут на все, и пятая часть
+ * вызовов всё равно возвращала 429, потому что все повторы попадали в то же закрытое окно.
+ */
+test('на 429 ждём столько, сколько просит источник', async () => {
+  const waits = [];
+  const started = Date.now();
+  let asked = 0;
+  const get = async () => {
+    asked++;
+    waits.push(Date.now() - started);
+    return asked === 1
+      ? { status: 429, statusText: 'Too Many Requests', body: '', headers: { 'retry-after': '1' } }
+      : { status: 200, statusText: 'OK', body: '<feed><entry><title>t</title><link href="https://x/1"/></entry></feed>' };
+  };
+
+  const run = await runFeedRobot({ name: 'x', version: 1, source: 'feed', url: 'https://x.test/f.rss' }, get);
+
+  assert.equal(asked, 2);
+  assert.ok(waits[1] >= 900, `второй заход не раньше, чем через просимую секунду (было ${waits[1]}мс)`);
+  assert.equal(run.rows.length, 1);
 });
