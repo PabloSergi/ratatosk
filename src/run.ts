@@ -161,7 +161,7 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
       // gathered at the end from a document that no longer holds it. So a scroll always collapses
       // repeats, whether or not the scenario asked for it.
       const collapse = dedupe || scenario.pagination.type === 'scroll';
-      const key = collapse ? sameRowInThisRun(row) : undefined;
+      const key = collapse ? sameRowInThisRun(row, scenario.remember?.by) : undefined;
       if (key && collected.has(key)) {
         duplicates++;
         continue;

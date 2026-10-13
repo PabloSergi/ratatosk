@@ -113,9 +113,14 @@ export function identity(row: Row, by?: string): string | undefined {
  * one posting somebody pushed back to the top. Within a single walk, nobody bumped anything in the
  * three seconds between page one and page two — so two rows that differ by their last word are two
  * rows, and merging them loses one. "Room 1" and "Room 2" is the whole of the argument.
+ *
+ * `by` is the scraper's own word about what identifies its rows, and it is obeyed here for the same
+ * reason it is obeyed between runs: a board may give several genuinely different openings one shared
+ * address. One did — three roles all pointing at a page's "other roles" anchor — and the walk
+ * collapsed them into one, leaving a count where two vacancies had been.
  */
-export function sameRowInThisRun(row: Row): string | undefined {
-  return key(row, undefined, false);
+export function sameRowInThisRun(row: Row, by?: string): string | undefined {
+  return key(row, by, false);
 }
 
 function key(row: Row, by: string | undefined, stripBumps: boolean): string | undefined {

@@ -269,3 +269,20 @@ test('without asking for it, a repost is never passed on twice', async () => {
     assert.equal(seen.fresh.length, 0, `day ${n + 2} is still the same advert`);
   }
 });
+
+/**
+ * Доска может дать нескольким разным вакансиям один адрес: три роли вели на якорь «другие роли» на
+ * той же странице. Проход схлопывал их в одну строку, оставляя вместо двух вакансий число в отчёте.
+ * Слово скрапера о том, чем опознаётся его строка, должно слушаться и внутри прохода тоже.
+ */
+test('внутри прохода опознаватель строки берётся у скрапера, если он назван', () => {
+  const a = { title: 'Team lead', link: 'https://x.test/jobs#other' };
+  const b = { title: 'Chat manager', link: 'https://x.test/jobs#other' };
+
+  assert.equal(sameRowInThisRun(a), sameRowInThisRun(b), 'по адресу это одна и та же строка');
+  assert.notEqual(
+    sameRowInThisRun(a, 'title'),
+    sameRowInThisRun(b, 'title'),
+    'а по названию роли — две разные, и обе должны дойти',
+  );
+});
