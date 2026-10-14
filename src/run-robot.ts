@@ -3,7 +3,7 @@ import type { Robot } from './robots.js';
 import type { SiteRule } from './rules.js';
 import { runScenario, type RunResult } from './run.js';
 import { identity, identityOfMessage, meet, type Remember, type Row, type Seen } from './memory.js';
-import { fieldsOf, judgeSift, sift, type Sift } from './sift.js';
+import { fieldsOf, judgeSift, refused, sift, type Sift } from './sift.js';
 import { isTelegramRobot, runTelegramRobot } from './telegram.js';
 import { asker, deepen, isApiRobot, runApiRobot, type AskJson } from './api.js';
 import { isFeedRobot, runFeedRobot } from './feed.js';
@@ -167,12 +167,16 @@ export async function runRobot(
    * is this row" would mean opening everything or nothing.
    */
   const known = options.memory?.seen;
+  const byMemory = Boolean(robot.remember && robot.remember.mode !== 'all' && known);
   const worthOpening =
-    robot.detail && robot.remember && robot.remember.mode !== 'all' && known
+    robot.detail && (byMemory || robot.sift)
       ? (row: Record<string, string | null>): boolean => {
+          // Refused on the title alone stays refused when the text arrives, so the text is not fetched.
+          if (robot.sift && refused(row, robot.sift)) return false;
+          if (!byMemory) return true;
           const whole = robot.sift ? { ...row, ...fieldsOf(row, robot.sift) } : row;
           const key = identity(whole, robot.remember?.by);
-          return !key || !known[key];
+          return !key || !known![key];
         }
       : undefined;
 
@@ -206,8 +210,8 @@ export async function runRobot(
   }
 
   const seen = await remember(sifted.rows, robot.remember, options.memory, undefined, options.together);
-  const spared = run.evidence?.rowsKnownAlready;
-  const reason = [sifted.note, seen.note, spared ? `${spared} already read were not opened again` : undefined]
+  const spared = run.evidence?.rowsSkipped;
+  const reason = [sifted.note, seen.note, spared ? `${spared} rows were not opened: read before, or refused outright` : undefined]
     .filter(Boolean)
     .join('; ');
   if (seen.rows.length === 0 && seen.note) {

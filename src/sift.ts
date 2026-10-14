@@ -104,6 +104,22 @@ export function fieldsOf(row: Row, rule: Sift): Row {
   return found;
 }
 
+/**
+ * Whether a rule already refuses this row, on what the row carries so far.
+ *
+ * A drop beats a keep whatever the rest of the text turns out to say, so a row the drops already
+ * refuse is a row nobody will ever be handed — and opening its own page to read that text is a page
+ * load spent on the bin. Measured on a board of two hundred topics: a hundred and eighteen refusals,
+ * most of them plain in the title, ate a detail budget of sixty before the vacancies were reached.
+ *
+ * Only the columns the row has now are read, so a drop written against the deeper text simply does
+ * not match yet and the row is opened as before.
+ */
+export function refused(row: Row, rule: Sift): boolean {
+  const text = textOf(row, rule.from);
+  return compile(rule.drop ?? []).some((pattern) => pattern.test(text));
+}
+
 export function sift(rows: Row[], rule: Sift): SiftResult {
   const keep = compile(rule.keep ?? []);
   const drop = compile(rule.drop ?? []);

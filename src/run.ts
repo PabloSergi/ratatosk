@@ -35,8 +35,8 @@ export interface RunResult {
     missingFields: Record<string, number>;
     url: string;
     rowsOpened?: number;
-    /** Rows not opened because they had been read before. See RunOptions.worthOpening. */
-    rowsKnownAlready?: number;
+    /** Rows not opened: read before, or already refused by the sift. See RunOptions.worthOpening. */
+    rowsSkipped?: number;
     /** Rows this run collected twice and handed over once. */
     duplicates?: number;
   };
@@ -231,7 +231,7 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
     missingFields: lastExtract.missing,
     url: await page.currentUrl(),
     ...(scenario.detail ? { rowsOpened: visited } : {}),
-    ...(knownAlready ? { rowsKnownAlready: knownAlready } : {}),
+    ...(knownAlready ? { rowsSkipped: knownAlready } : {}),
     // Said out loud rather than quietly dropped: a walk that keeps handing back the same rows is a
     // pager going nowhere, and the count is how you notice.
     ...(duplicates > 0 ? { duplicates } : {}),

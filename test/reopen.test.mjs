@@ -78,5 +78,43 @@ test('a row the scraper already remembers is not opened again', async () => {
 
   const second = await runRobot(robot, { page: async () => board, memory });
   assert.deepEqual(board.opened, ['https://board.test/item/2'], 'only the one it does not know');
-  assert.ok(second.reason?.includes('not opened again'), `the run says so: ${second.reason}`);
+  assert.ok(second.reason?.includes('were not opened'), `the run says so: ${second.reason}`);
+});
+
+/**
+ * The same page load, spared for the other reason: the rule already said no.
+ *
+ * A drop beats a keep whatever the deeper text says, so a row refused by its title is refused for
+ * good — and the only thing opening it buys is the page load. On a board where most of the topics are
+ * people offering themselves rather than hiring, that is most of the budget.
+ */
+class TitledBoard extends Board {
+  async evaluate(source, argument) {
+    if (source.includes('blocksSeen') && argument?.rows !== 'html') {
+      return {
+        rows: [
+          { title: 'ищем модератора', link: 'https://board.test/item/1' },
+          { title: 'ищу работу, рассмотрю предложения', link: 'https://board.test/item/2' },
+        ],
+        blocksSeen: 2,
+        missing: {},
+      };
+    }
+    return super.evaluate(source, argument);
+  }
+}
+
+test('a row the sift already refuses is not opened to read what it says', async () => {
+  const page = new TitledBoard();
+  const sifted = {
+    ...robot,
+    list: { rows: '.card', fields: { title: { type: 'text' }, link: { type: 'attr', attr: 'href' } } },
+    sift: { want: 'наём', from: ['title', 'body'], keep: ['ищем|ищу'], drop: ['ищу\\s+работу'] },
+  };
+
+  const run = await runRobot(sifted, { page: async () => page, memory: memoryOf() });
+
+  assert.deepEqual(page.opened, ['https://board.test/item/1'], 'only the row that can still be kept');
+  assert.equal(run.rows.length, 1);
+  assert.equal(run.rows[0].body, 'the whole of https://board.test/item/1', 'and that one came back whole');
 });
