@@ -177,6 +177,16 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
     // a row handed on before it is whole is a row somebody has to guess about, and a walk that stops
     // half way should still leave behind pages that are finished rather than pages that are started.
     if (scenario.detail && fresh.length > 0) {
+      /**
+       * Where the list is, kept before the walk goes one level in.
+       *
+       * Turning the page is done from the address bar: the next page's number is read out of where we
+       * are, and the next link is looked for on what is open. Walking into rows leaves the browser on
+       * the last row it opened — so a list with a detail walk was asking a forum TOPIC for page two of
+       * the forum, and every such scraper quietly ended after one page. Measured on master-x: one page
+       * and forty rows with the walk, five pages and two hundred without it.
+       */
+      const list = await page.currentUrl();
       try {
         const walked = await walkIntoRows(page, scenario, fresh, options.rules ?? [], rulesApplied, {
           ...(options.worthOpening ? { worthOpening: options.worthOpening } : {}),
@@ -188,6 +198,13 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
         opened += walked.opened;
       } catch (error) {
         paginationStopped = paginationStopped ?? `the walk into rows stopped: ${firstLine(error)}`;
+      }
+      // Back to the list before the page is turned. Not for a scrolling list: its rows live in what
+      // the browser has already loaded, and no address brings them back — there the walk is one page
+      // either way.
+      if (turnsPagesByAddress(scenario.pagination) && (await page.currentUrl()) !== list) {
+        await page.goto(list);
+        await waitForContent(page, scenario.wait);
       }
     }
 
@@ -384,6 +401,11 @@ async function walkIntoRows(
   }
 
   return { opened, skipped };
+}
+
+/** Whether the next page is asked for by address or link — the two that need the list still open. */
+function turnsPagesByAddress(pagination: PaginationRule): boolean {
+  return pagination.type !== 'none' && pagination.type !== 'scroll';
 }
 
 export async function scrapeCurrentPage(page: PageDriver, scenario: Scenario): Promise<ExtractResult> {

@@ -386,6 +386,42 @@ test('a row whose page will not open keeps what the list gave it', async () => {
   assert.equal(result.rows[1].title, 'row 0.1', 'what the list gave it is still there');
 });
 
+/**
+ * A list that both numbers its pages and hides the text one level in — the ordinary forum.
+ *
+ * It exists for one assertion: the page is turned from the list. Walking into rows leaves the browser
+ * on the last row it opened, and a pager that reads the address then asks the ROW for page two, which
+ * on a real board answers with the row again and ends the walk after one page.
+ */
+class NumberedPageWithRows extends PageWithRows {
+  constructor(options = {}) {
+    super(options);
+    this.lastPage = options.lastPage ?? 3;
+    this.asked = [];
+  }
+  async goto(url) {
+    await super.goto(url);
+    if (url.includes('/row/')) return;
+    const asked = Number(new URL(url).searchParams.get('page') ?? 1);
+    this.pageIndex = asked > this.lastPage ? 0 : asked - 1;
+    this.asked.push(asked);
+  }
+  async currentUrl() { return this.url; }
+}
+
+test('the page is turned from the list, not from the row that was just opened', async () => {
+  const page = new NumberedPageWithRows({ rowsPerPage: 2 });
+  const result = await runScenario(
+    page,
+    parseScenario({ ...withDetail, pagination: { type: 'number', param: 'page', maxPages: 3 } }),
+  );
+
+  assert.equal(result.pagesVisited, 3, 'the walk does not end on page one');
+  assert.deepEqual([...new Set(page.asked)], [1, 2, 3], 'and every page was asked for by its own number');
+  assert.equal(result.rows.length, 6);
+  assert.equal(result.rows[5].pay, 'pay for 2-1', 'rows from the later pages are whole too');
+});
+
 test('a deeper field that is empty in every row is a rotted field, not a quiet gap', async () => {
   const page = new PageWithRows();
   page.evaluate = async function (fn, argument) {
