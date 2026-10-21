@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { appendFile, mkdir, mkdtemp } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, test } from 'vitest';
@@ -167,6 +167,7 @@ test('four channels become four scrapers, one each', async () => {
   const made = await call('/api/telegram/robot', {
     channels: '@pythonjobs, remote_work devhires\n@nightshift',
     limit: 50,
+    project: 'tests',
   });
 
   assert.equal(made.status, 200);
@@ -232,7 +233,7 @@ test('how many bad runs count as broken is bounded, whatever is typed', async ()
 });
 
 test('a deleted scraper can be had back', async () => {
-  await call('/api/telegram/robot', { channels: '@regretted', limit: 10 });
+  await call('/api/telegram/robot', { channels: '@regretted', limit: 10, project: 'tests' });
   await call('/api/robot/delete', { name: 'regretted' });
 
   const gone = await call('/api/robots', {});
@@ -255,9 +256,9 @@ test('a deleted scraper can be had back', async () => {
 });
 
 test('restoring onto a name taken since is refused rather than silently overwriting', async () => {
-  await call('/api/telegram/robot', { channels: '@twice', limit: 10 });
+  await call('/api/telegram/robot', { channels: '@twice', limit: 10, project: 'tests' });
   await call('/api/robot/delete', { name: 'twice' });
-  await call('/api/telegram/robot', { channels: '@twice', limit: 10 }); // somebody built it again
+  await call('/api/telegram/robot', { channels: '@twice', limit: 10, project: 'tests' }); // somebody built it again
 
   const deleted = await call('/api/robot/deleted', {});
   const one = deleted.body.deleted.find((entry) => entry.name === 'twice');
@@ -274,7 +275,7 @@ test('a restore cannot be pointed at a file that is not a deleted scraper', asyn
 });
 
 test('renaming a scraper brings its history along', async () => {
-  await call('/api/telegram/robot', { channels: '@before', limit: 10 });
+  await call('/api/telegram/robot', { channels: '@before', limit: 10, project: 'tests' });
 
   const renamed = await call('/api/robot/rename', { name: 'before', to: 'after' });
   assert.equal(renamed.status, 200);
@@ -288,7 +289,7 @@ test('renaming a scraper brings its history along', async () => {
 });
 
 test('a rename onto a name in use is refused, and changes nothing', async () => {
-  await call('/api/telegram/robot', { channels: '@one, @two', limit: 10 });
+  await call('/api/telegram/robot', { channels: '@one, @two', limit: 10, project: 'tests' });
 
   const clash = await call('/api/robot/rename', { name: 'one', to: 'two' });
   assert.equal(clash.status, 400);
@@ -300,7 +301,7 @@ test('a rename onto a name in use is refused, and changes nothing', async () => 
 });
 
 test('a rename to nothing, or to the same name, is refused rather than half-done', async () => {
-  await call('/api/telegram/robot', { channels: '@steady', limit: 10 });
+  await call('/api/telegram/robot', { channels: '@steady', limit: 10, project: 'tests' });
 
   const empty = await call('/api/robot/rename', { name: 'steady', to: '   ' });
   assert.equal(empty.status, 400);
@@ -312,8 +313,8 @@ test('a rename to nothing, or to the same name, is refused rather than half-done
 });
 
 test('a scraper is never created over one that already exists', async () => {
-  await call('/api/telegram/robot', { channels: '@taken', limit: 10 });
-  const again = await call('/api/telegram/robot', { channels: '@taken', limit: 10 });
+  await call('/api/telegram/robot', { channels: '@taken', limit: 10, project: 'tests' });
+  const again = await call('/api/telegram/robot', { channels: '@taken', limit: 10, project: 'tests' });
 
   assert.equal(again.status, 400);
   assert.match(again.body.error, /already exists/);
@@ -323,12 +324,12 @@ test('a scraper is never created over one that already exists', async () => {
 });
 
 test('one channel with a name of its own keeps that name', async () => {
-  const made = await call('/api/telegram/robot', { channels: '@onlyone', name: 'my-watch', limit: 10 });
+  const made = await call('/api/telegram/robot', { channels: '@onlyone', name: 'my-watch', limit: 10, project: 'tests' });
   assert.deepEqual(made.body.robots.map((robot) => robot.name), ['my-watch']);
 });
 
 test('a telegram scraper without a channel is refused with a reason', async () => {
-  const nothing = await call('/api/telegram/robot', { channels: '  ' });
+  const nothing = await call('/api/telegram/robot', { channels: '  ', project: 'tests' });
   assert.equal(nothing.status, 400);
   assert.match(nothing.body.error, /at least one channel/);
 });
@@ -560,7 +561,7 @@ test('the rule endpoints are closed to strangers', async () => {
 });
 
 test('a scraper that was deleted stops being counted as one that needs looking at', async () => {
-  await call('/api/telegram/robot', { channels: '@standing', limit: 10 });
+  await call('/api/telegram/robot', { channels: '@standing', limit: 10, project: 'tests' });
   const me = await call('/api/auth/me', {});
 
   // Two broken runs in the journal: one belongs to a scraper that exists, the other to one that was
@@ -601,3 +602,219 @@ test('the harvest says where to carry on from, so nothing is asked for twice or 
   assert.equal(again.body.nextSince, first.body.nextSince);
 });
 
+
+/**
+ * Projects. One account holds the scrapers of several unrelated products, and a product's own
+ * automation must be able to ask for "everything of mine" without keeping a list of names — and
+ * without being able to learn what else the account is scraping.
+ */
+function asKey(key) {
+  return async (path, body) => {
+    const response = await fetch(base + path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+      body: JSON.stringify(body ?? {}),
+    });
+    return { status: response.status, body: await response.json().catch(() => ({})) };
+  };
+}
+
+/** A scraper written straight to disk, the way one made before there were projects is found there. */
+async function onDisk(robot) {
+  const me = await call('/api/auth/me', {});
+  const dir = join(home, 'robots', 'u', me.body.user.id);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, `${robot.name}.json`), JSON.stringify({ version: 1, source: 'telegram', limit: 10, ...robot }));
+}
+
+test('a scraper is not made without a project to put it in', async () => {
+  const refused = await call('/api/telegram/robot', { channels: '@homeless', limit: 10 });
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.error, /belongs to a project/);
+
+  const listed = await call('/api/robots', {});
+  assert.ok(!listed.body.robots.some((robot) => robot.name === 'homeless'), 'and nothing was half-made');
+
+  const bad = await call('/api/telegram/robot', { channels: '@homeless', limit: 10, project: 'Viet Rent!' });
+  assert.equal(bad.status, 400, 'a project is a word that can be typed again, not any string at all');
+});
+
+test('a scraper says which project it is in, and the list can be narrowed to one', async () => {
+  await call('/api/telegram/robot', { channels: '@rent-saigon', limit: 10, project: 'RENT' });
+  await call('/api/telegram/robot', { channels: '@jobs-board', limit: 10, project: 'jobs' });
+
+  const all = await call('/api/robots', {});
+  assert.equal(all.body.robots.find((robot) => robot.name === 'rent-saigon').project, 'rent', 'kept lower-cased');
+
+  const rent = await call('/api/robots', { project: 'rent' });
+  assert.deepEqual(rent.body.robots.map((robot) => robot.name), ['rent-saigon']);
+});
+
+test('a key bound to a project sees that project and nothing else', async () => {
+  const made = await call('/api/keys/create', { label: 'n8n -> rent', project: 'rent' });
+  assert.equal(made.status, 200, JSON.stringify(made.body));
+  assert.equal(made.body.keys.find((key) => key.label === 'n8n -> rent').project, 'rent');
+  const asRent = asKey(made.body.key);
+
+  const robots = await asRent('/api/robots');
+  assert.deepEqual(robots.body.robots.map((robot) => robot.name), ['rent-saigon']);
+
+  // A scraper of another project answers exactly as one that does not exist — and the refusal lists
+  // only this project's names, or it would be a way of reading the rest of the account.
+  for (const path of ['/api/run', '/api/results', '/api/catalogue', '/api/vanished', '/api/robot/rule', '/api/schedule/now']) {
+    const other = await asRent(path, { name: 'jobs-board' });
+    assert.equal(other.status, 400, `${path} let a rent key reach a jobs scraper`);
+    assert.match(other.body.error, /no robot named "jobs-board"/);
+    assert.doesNotMatch(other.body.error, /taken|regretted|steady/, `${path} told a rent key about other projects`);
+  }
+  const history = await asRent('/api/history', { robot: 'jobs-board' });
+  assert.equal(history.status, 400);
+
+  // Asking for another project by name is refused outright rather than quietly answered with its own.
+  const elsewhere = await asRent('/api/robots', { project: 'jobs' });
+  assert.equal(elsewhere.status, 403);
+
+  // And the account's own business is not a project key's to touch.
+  for (const path of ['/api/proxies', '/api/keys', '/api/keys/create', '/api/models', '/api/robot/delete', '/api/robot/rename', '/api/robot/project']) {
+    const closed = await asRent(path, { name: 'rent-saigon' });
+    assert.equal(closed.status, 403, `${path} is open to a project key`);
+    assert.match(closed.body.error, /for the rent project/);
+  }
+});
+
+test('a project key builds into its own project, and only there', async () => {
+  const made = await call('/api/keys/create', { label: 'rent builder', project: 'rent' });
+  const asRent = asKey(made.body.key);
+
+  const built = await asRent('/api/telegram/robot', { channels: '@rent-hanoi', limit: 10 });
+  assert.equal(built.status, 200, JSON.stringify(built.body));
+  const listed = await call('/api/robots', { project: 'rent' });
+  assert.ok(listed.body.robots.some((robot) => robot.name === 'rent-hanoi'), 'it lands in the key’s project without being told');
+
+  const smuggled = await asRent('/api/telegram/robot', { channels: '@sneaky', limit: 10, project: 'jobs' });
+  assert.equal(smuggled.status, 403);
+});
+
+test('the harvest of a project key holds that project’s rows and no one else’s', async () => {
+  const { keepResult } = await import('../src/results.ts');
+  process.env.RATATOSK_RESULTS = join(home, 'results');
+  const me = (await call('/api/auth/me', {})).body.user.id;
+  const run = (title) => ({ status: 'ok', pagesVisited: 1, rows: [{ title, link: `https://board.test/${title}` }] });
+  await keepResult(me, 'rent-saigon', { at: '2026-10-02T10:00:00.000Z', ...run('a flat') });
+  await keepResult(me, 'jobs-board', { at: '2026-10-02T10:05:00.000Z', ...run('a vacancy') });
+
+  const made = await call('/api/keys/create', { label: 'rent harvest', project: 'rent' });
+  const harvest = await asKey(made.body.key)('/api/harvest', { since: '2026-10-02T09:00:00.000Z' });
+  assert.equal(harvest.status, 200);
+  assert.deepEqual(harvest.body.rows.map((row) => row.scraper), ['rent-saigon']);
+
+  // Signed in, the whole account — or one project, if asked.
+  const whole = await call('/api/harvest', { since: '2026-10-02T09:00:00.000Z' });
+  assert.deepEqual(whole.body.rows.map((row) => row.scraper).sort(), ['jobs-board', 'rent-saigon']);
+  const jobs = await call('/api/harvest', { since: '2026-10-02T09:00:00.000Z', project: 'jobs' });
+  assert.deepEqual(jobs.body.rows.map((row) => row.scraper), ['jobs-board']);
+});
+
+test('what vanished is told for a whole project at once, without naming its scrapers', async () => {
+  const { keepSeen, finishedPass } = await import('../src/catalogue.ts');
+  process.env.RATATOSK_CATALOGUE = join(home, 'catalogue');
+  const me = (await call('/api/auth/me', {})).body.user.id;
+
+  await onDisk({ name: 'rent-flats', project: 'rent', channels: ['flats'], catalogue: 'link' });
+  await onDisk({ name: 'rent-rooms', project: 'rent', channels: ['rooms'], catalogue: 'link' });
+  await onDisk({ name: 'jobs-listed', project: 'jobs', channels: ['jobs'], catalogue: 'link' });
+
+  // Two flats seen on Monday, one of them again on Tuesday's pass: the other has left the source.
+  await keepSeen(me, 'rent-flats', [{ link: 'f1' }, { link: 'f2' }], 'link', '2026-10-05T08:00:00.000Z');
+  await keepSeen(me, 'rent-flats', [{ link: 'f1' }], 'link', '2026-10-06T08:00:00.000Z');
+  await finishedPass(me, 'rent-flats', '2026-10-06T08:00:00.000Z');
+  await keepSeen(me, 'jobs-listed', [{ link: 'j1' }], 'link', '2026-10-05T08:00:00.000Z');
+  await finishedPass(me, 'jobs-listed', '2026-10-06T08:00:00.000Z');
+
+  const made = await call('/api/keys/create', { label: 'rent gone', project: 'rent' });
+  const gone = await asKey(made.body.key)('/api/vanished', {});
+  assert.equal(gone.status, 200, JSON.stringify(gone.body));
+  assert.equal(gone.body.project, 'rent');
+  assert.deepEqual(gone.body.robots.map((robot) => robot.name).sort(), ['rent-flats', 'rent-rooms']);
+  const flats = gone.body.robots.find((robot) => robot.name === 'rent-flats');
+  assert.deepEqual(flats.ids.map((one) => one.id), ['f2']);
+  // One that has not finished a pass is listed with nothing to say, so its silence is visible.
+  assert.equal(gone.body.robots.find((robot) => robot.name === 'rent-rooms').since, null);
+
+  // Named, the answer is the one it always was.
+  const one = await call('/api/vanished', { name: 'rent-flats' });
+  assert.deepEqual(one.body.ids.map((entry) => entry.id), ['f2']);
+
+  // Signed in with no name and no project there is nothing to answer for.
+  const vague = await call('/api/vanished', {});
+  assert.equal(vague.status, 400);
+});
+
+test('a key that already exists can be bound to a project and freed again, and stays the same key', async () => {
+  const made = await call('/api/keys/create', { label: 'old n8n' });
+  const asOld = asKey(made.body.key);
+  const id = made.body.keys.find((key) => key.label === 'old n8n').id;
+  assert.ok((await asOld('/api/robots')).body.robots.some((robot) => robot.name === 'jobs-board'));
+
+  const bound = await call('/api/keys/project', { id, project: 'rent' });
+  assert.equal(bound.body.keys.find((key) => key.id === id).project, 'rent');
+  assert.ok(!(await asOld('/api/robots')).body.robots.some((robot) => robot.name === 'jobs-board'), 'it sees less now');
+
+  await call('/api/keys/project', { id });
+  assert.ok((await asOld('/api/robots')).body.robots.some((robot) => robot.name === 'jobs-board'), 'and the account again');
+});
+
+test('scrapers from before projects are put into one, a list at a time, or not at all', async () => {
+  await onDisk({ name: 'legacy-one', channels: ['one'] });
+  await onDisk({ name: 'legacy-two', channels: ['two'] });
+
+  const listed = await call('/api/robots', {});
+  assert.equal(listed.body.robots.find((robot) => robot.name === 'legacy-one').project, undefined, 'shown, with none');
+
+  // A typo in the list moves nothing rather than half of it.
+  const typo = await call('/api/robot/project', { names: ['legacy-one', 'legacy-tow'], project: 'jobs' });
+  assert.equal(typo.status, 400);
+  const still = await call('/api/robots', {});
+  assert.equal(still.body.robots.find((robot) => robot.name === 'legacy-one').project, undefined);
+
+  const nowhere = await call('/api/robot/project', { names: ['legacy-one'], project: '' });
+  assert.equal(nowhere.status, 400, 'a scraper cannot be put into no project');
+
+  const moved = await call('/api/robot/project', { names: ['legacy-one', 'legacy-two'], project: 'jobs' });
+  assert.deepEqual(moved.body.moved, ['legacy-one', 'legacy-two']);
+  const after = await call('/api/robots', { project: 'jobs' });
+  assert.ok(after.body.robots.some((robot) => robot.name === 'legacy-two'));
+});
+
+test('a scraper deleted before projects comes back only into one', async () => {
+  await onDisk({ name: 'legacy-deleted', channels: ['old'] });
+  await call('/api/robot/delete', { name: 'legacy-deleted' });
+  const one = (await call('/api/robot/deleted', {})).body.deleted.find((entry) => entry.name === 'legacy-deleted');
+
+  const refused = await call('/api/robot/restore', { file: one.file });
+  assert.equal(refused.status, 400);
+  assert.match(refused.body.error, /belongs to a project/);
+
+  const back = await call('/api/robot/restore', { file: one.file, project: 'jobs' });
+  assert.equal(back.status, 200);
+  const listed = await call('/api/robots', { project: 'jobs' });
+  assert.ok(listed.body.robots.some((robot) => robot.name === 'legacy-deleted'));
+});
+
+test('a project key still answers when its own scrapers are named, as workflows already do', async () => {
+  const made = await call('/api/keys/create', { label: 'rent by name', project: 'rent' });
+  const asRent = asKey(made.body.key);
+
+  // What a workflow written before projects sends: the scraper by name, on the doors it already used.
+  const gone = await asRent('/api/vanished', { name: 'rent-flats', limit: 100000 });
+  assert.equal(gone.status, 200, JSON.stringify(gone.body));
+  assert.deepEqual(gone.body.ids.map((one) => one.id), ['f2']);
+
+  const listed = await asRent('/api/catalogue', { name: 'rent-flats', limit: 1000 });
+  assert.equal(listed.status, 200, JSON.stringify(listed.body));
+
+  // The harvest never took a name; a field it does not know is ignored, not refused.
+  const harvest = await asRent('/api/harvest', { since: '2026-10-02T09:00:00.000Z', robot: 'rent-saigon' });
+  assert.equal(harvest.status, 200);
+  assert.deepEqual(harvest.body.rows.map((row) => row.scraper), ['rent-saigon']);
+});

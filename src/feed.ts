@@ -17,6 +17,8 @@ import { direct, patiently, type Get } from './through.js';
 export interface FeedRobot {
   name: string;
   version: 1;
+  /** Which project it works for — see src/projects.ts. */
+  project?: string;
   source: 'feed';
   /** The feed's address. */
   url: string;

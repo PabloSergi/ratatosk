@@ -16,6 +16,26 @@ The key goes in one header:
 
 Everything below works the same with a key or with a signed-in token.
 
+## One project, one key
+
+An account usually ends up holding scrapers for several unrelated things. Every scraper belongs to a
+**project** — a word in its file, `"project": "vietrent"` — and a key can be bound to one: give it a
+project when you make it, or press **Bind** next to a key that already exists (the key stays the same
+string, so nothing in n8n changes).
+
+A key bound to a project:
+
+- lists, runs, schedules, harvests and reads only that project's scrapers; any other scraper answers
+  exactly as one that does not exist;
+- builds into that project without being told;
+- cannot touch the account itself — keys, model connections, proxies, Telegram, renaming, deleting or
+  moving scrapers answer `403`.
+
+That is what lets a workflow stop carrying a list of scraper names: `POST /api/harvest` and
+`POST /api/vanished` with no name answer for every scraper of the project, so a city added next month
+turns up in the same call. Signed in, or with a key for the whole account, add `"project": "…"` to the
+body for the same narrowing.
+
 ## Run a scraper on a schedule
 
 **Schedule Trigger** → **HTTP Request**:
@@ -54,7 +74,7 @@ To fan the rows out one by one, follow with **Split Out** on `rows`.
 
 | what | where | body |
 | --- | --- | --- |
-| list the scrapers | `POST /api/robots` | — |
+| list the scrapers | `POST /api/robots` | — or `{ "project": "…" }` |
 | run one | `POST /api/run` | `{ "name": "…", "maxPages": 3 }` |
 | repair one | `POST /api/repair` | `{ "name": "…" }` |
 | how they are all doing | `POST /api/history` | `{ "limit": 60 }` |
@@ -62,6 +82,8 @@ To fan the rows out one by one, follow with **Split Out** on `rows`.
 | what a scraper's last runs brought back | `POST /api/results` | `{ "name": "…" }` |
 | the rows of one of them | `POST /api/results/get` | `{ "name": "…", "at": "2026-09-05T03:37:46.595Z" }` |
 | everything all of them brought back since a moment | `POST /api/harvest` | `{ "since": "2026-09-05T06:00:00.000Z" }` |
+| what has left one source, or every source of a project | `POST /api/vanished` | `{ "name": "…" }`, or nothing with a project key |
+| put scrapers into a project | `POST /api/robot/project` | `{ "names": ["…"], "project": "…" }` (signed in) |
 | what runs by itself, and when next | `POST /api/schedules` | — |
 | set that | `POST /api/schedule/set` | `{ "name": "…", "everyMinutes": 60 }` |
 

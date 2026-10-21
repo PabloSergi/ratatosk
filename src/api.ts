@@ -25,6 +25,8 @@ import type { Remember } from './memory.js';
 export interface ApiRobot {
   name: string;
   version: 1;
+  /** Which project it works for — see src/projects.ts. */
+  project?: string;
   source: 'api';
   /** The endpoint, without query. */
   url: string;

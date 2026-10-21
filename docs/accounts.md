@@ -12,6 +12,16 @@ everything a person makes belongs to them.
 The first account created adopts any scrapers that already existed before there were accounts, so turning
 this on does not orphan the work of whoever was already running it.
 
+## Projects
+
+Inside an account, scrapers are grouped by **project** — the product they work for. It is one field in
+the scraper's file, `"project": "vietrent"`; the file is not moved and the name is not changed, because
+history, memory and results are filed under the name. Every new scraper must name one, from the web
+view, the API, the MCP server or `draft --project`; scrapers made before projects existed are shown
+under **no project yet** until they are given one (on the card, or all of them at once from that tab).
+
+Keys can be bound to one project — see [n8n.md](n8n.md#one-project-one-key).
+
 ## Signing up
 
 Registration is open and there is no email confirmation. That is a deliberate choice for now, not an

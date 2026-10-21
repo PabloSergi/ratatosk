@@ -19,6 +19,8 @@ import {
   connectionCard,
   escapeHtml,
   kindTabs,
+  placeAll,
+  projectTabs,
   stateTabs,
   waitingList,
   proxyCard,
@@ -190,9 +192,22 @@ async function enter(kind: 'login' | 'register'): Promise<void> {
 
 // --- scrapers -------------------------------------------------------------------------------------
 
+/**
+ * Which project the list is narrowed to: 'all', a project, or '' for the scrapers that have none yet.
+ * Remembered, because whoever looks after one product opens the page to look at that product.
+ */
+let shownProject = localStorage.getItem('ratatosk.project') ?? 'all';
 let shownKind = 'all';
 /** Which health the list is narrowed to: 'all', or one of the states a run can end in. */
 let shownState = 'all';
+
+/** The projects there are, offered wherever one is typed, so "vietrent" is not spelt three ways. */
+function offerProjects(names: string[]): void {
+  el('projectNames').innerHTML = names.map((name) => `<option value="${escapeHtml(name)}"></option>`).join('');
+  // A new scraper goes where the person is looking, unless they said otherwise.
+  const field = el<HTMLInputElement>('buildProject');
+  if (!field.value && shownProject !== 'all' && shownProject) field.value = shownProject;
+}
 
 /** The scrapers as last listed. A card's buttons act on one of these, so they have to be to hand. */
 let known: RobotSummary[] = [];
@@ -238,12 +253,8 @@ const probes = new Map<string, { at: string; ok: boolean; note: string }>();
 
 async function loadScrapers(): Promise<void> {
   try {
-    const { scrapers } = await api.scrapers();
-    known = scrapers;
-
-    const counts = new Map<string, number>();
-    for (const scraper of scrapers) counts.set(scraper.kind, (counts.get(scraper.kind) ?? 0) + 1);
-    if (shownKind !== 'all' && !counts.has(shownKind)) shownKind = 'all';
+    const { scrapers: everything } = await api.scrapers();
+    known = everything;
 
     // …and how often it runs by itself, if the stack it is installed in can do that at all.
     const when = new Map(
@@ -254,6 +265,30 @@ async function loadScrapers(): Promise<void> {
     // Read before the tabs are drawn, because one of them counts the troubled ones.
     const how = new Map((await api.history().catch(() => ({ standing: [] }))).standing.map((entry) => [entry.robot, entry]));
     const stateOf = (name: string): string => how.get(name)?.status ?? 'ok';
+
+    // Projects first: everything below — kinds, health, the cards — is about the project chosen here.
+    const projects = new Map<string, { count: number; troubled: number }>();
+    for (const scraper of everything) {
+      const entry = projects.get(scraper.project ?? '') ?? { count: 0, troubled: 0 };
+      entry.count += 1;
+      if (stateOf(scraper.name) !== 'ok') entry.troubled += 1;
+      projects.set(scraper.project ?? '', entry);
+    }
+    if (shownProject !== 'all' && !projects.has(shownProject)) shownProject = 'all';
+    const ordered = [...projects]
+      .map(([project, entry]) => ({ project, ...entry }))
+      .sort((one, other) =>
+        !one.project ? 1 : !other.project ? -1 : other.count - one.count || one.project.localeCompare(other.project),
+      );
+    el('projects').innerHTML = projects.size ? projectTabs(ordered, shownProject) : '';
+    offerProjects(ordered.map((entry) => entry.project).filter(Boolean));
+
+    const scrapers = everything.filter((scraper) => shownProject === 'all' || (scraper.project ?? '') === shownProject);
+    el('placing').innerHTML = shownProject === '' ? placeAll(scrapers.length) : '';
+
+    const counts = new Map<string, number>();
+    for (const scraper of scrapers) counts.set(scraper.kind, (counts.get(scraper.kind) ?? 0) + 1);
+    if (shownKind !== 'all' && !counts.has(shownKind)) shownKind = 'all';
 
     const states = new Map<string, number>();
     for (const scraper of scrapers) {
@@ -284,7 +319,9 @@ async function loadScrapers(): Promise<void> {
 
     el('scrapers').innerHTML = shown.length
       ? shown
-          .map((scraper) => scraperCard(scraper, how.get(scraper.name), probes.get(scraper.name), when.get(scraper.name)))
+          .map((scraper) =>
+            scraperCard(scraper, how.get(scraper.name), probes.get(scraper.name), when.get(scraper.name), shownProject === 'all'),
+          )
           .join('')
       : '<span class="muted">nothing of that kind yet</span>';
 
@@ -421,7 +458,7 @@ el('agent').addEventListener('click', async () => {
   try {
     const proxyId = value('buildProxy') || undefined;
     const through = proxyId ? el<HTMLSelectElement>('buildProxy').selectedOptions[0]?.text : 'this machine';
-    const build = await api.agent(url, value('want'), value('name'), proxyId);
+    const build = await api.agent(url, value('want'), value('name'), proxyId, value('buildProject'));
     const good = build.verdict?.good ?? false;
     el('buildOut').innerHTML =
       stepsList(build.steps) +
@@ -453,7 +490,7 @@ el('draft').addEventListener('click', async () => {
   const done = busy(el<HTMLButtonElement>('draft'), 'drafting');
   el('buildOut').innerHTML = '';
   try {
-    const draft = await api.draft(url, value('name'), value('buildProxy') || undefined);
+    const draft = await api.draft(url, value('name'), value('buildProxy') || undefined, value('buildProject'));
     el('buildOut').innerHTML = `<pre>${draft.log.map(escapeHtml).join('\n')}</pre>`;
     if (!draft.scenario) {
       el('buildOut').innerHTML += `<div class="broken spaced">${escapeHtml(draft.reason ?? 'no draft')}</div>`;
@@ -517,6 +554,7 @@ el('tgCreate').addEventListener('click', async () => {
       want: value('tgWant'),
       account: value('tgAccount') || undefined,
       fromToday: el<HTMLInputElement>('tgFromToday').checked,
+      project: value('buildProject'),
     });
 
     // One per channel, and the answer says so — somebody who typed four names and got four scrapers
@@ -764,8 +802,9 @@ async function loadKeys(): Promise<void> {
 el('keyCreate').addEventListener('click', async () => {
   const done = busy(el<HTMLButtonElement>('keyCreate'), 'making');
   try {
-    const made = await api.createKey(value('keyLabel'));
+    const made = await api.createKey(value('keyLabel'), value('keyProject') || undefined);
     el<HTMLInputElement>('keyLabel').value = '';
+    el<HTMLInputElement>('keyProject').value = '';
     // Shown once, here, and never again — the server keeps only its hash.
     el('keysStatus').innerHTML =
       `${badge('ok')} copy it now, it is not shown again:<pre>${escapeHtml(made.key)}</pre>`;
@@ -964,6 +1003,17 @@ document.addEventListener('click', async (event) => {
   const viewTab = target.closest<HTMLElement>('.view-tab');
   if (viewTab?.dataset['view']) return showView(viewTab.dataset['view']);
 
+  const projectTab = target.closest<HTMLElement>('.tab[data-project]');
+  if (projectTab) {
+    shownProject = projectTab.dataset['project'] ?? 'all';
+    localStorage.setItem('ratatosk.project', shownProject);
+    // Kinds and health are counted inside a project, so a choice made in another one may not exist here.
+    shownKind = 'all';
+    shownState = 'all';
+    void loadScrapers();
+    return;
+  }
+
   const kindTab = target.closest<HTMLElement>('.tab[data-kind]');
   if (kindTab) {
     shownKind = kindTab.dataset['kind'] ?? 'all';
@@ -1030,7 +1080,8 @@ document.addEventListener('click', async (event) => {
     ['data-download-csv', 'result', async (id) => handOver(carried.rows, id, 'csv')],
     ['data-download-json', 'result', async (id) => handOver(carried.rows, id, 'json')],
     ['data-restore', 'scrapers', async (id) => {
-      const back = await api.restoreScraper(id);
+      // One deleted before there were projects comes back into the project being looked at.
+      const back = await api.restoreScraper(id, shownProject !== 'all' && shownProject ? shownProject : undefined);
       await loadScrapers();
       answerIn(back.restored, `${badge('ok')} back, under its own name`);
     }],
@@ -1249,6 +1300,27 @@ document.addEventListener('click', async (event) => {
     ['data-tg-forget', 'tgStatus', async (id) => {
       await api.telegramForget(id);
       await Promise.all([loadTelegram(), loadScrapers()]);
+    }],
+    ['data-scraper-project', 'scrapers', async (id) => {
+      const field = document.querySelector<HTMLInputElement>(`[data-project-for="${CSS.escape(id)}"]`);
+      const moved = await api.moveToProject([id], field?.value ?? '');
+      await loadScrapers();
+      answerIn(id, `${badge('ok')} now in <b>${escapeHtml(moved.project)}</b>`);
+    }],
+    ['data-place-all', 'placing', async () => {
+      const names = known.filter((scraper) => !scraper.project).map((scraper) => scraper.name);
+      const moved = await api.moveToProject(names, value('placeAllProject'));
+      await loadScrapers();
+      el('runsStatus').innerHTML = `${badge('ok')} ${moved.moved.length} moved into <b>${escapeHtml(moved.project)}</b>`;
+    }],
+    ['data-key-project', 'keysStatus', async (id) => {
+      const field = document.querySelector<HTMLInputElement>(`[data-key-project-for="${CSS.escape(id)}"]`);
+      const bound = await api.bindKey(id, field?.value.trim() || undefined);
+      el('keysList').innerHTML = keysList(bound.keys);
+      const project = bound.keys.find((key) => key.id === id)?.project;
+      el('keysStatus').innerHTML = project
+        ? `${badge('ok')} from its next request it sees only <b>${escapeHtml(project)}</b>`
+        : `${badge('ok')} it sees the whole account again`;
     }],
     ['data-key-revoke', 'keysStatus', async (id) => {
       const revoked = await api.revokeKey(id);

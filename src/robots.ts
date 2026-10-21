@@ -6,6 +6,7 @@ import { InputError } from './errors.js';
 import { isTelegramRobot, parseTelegramRobot, type TelegramRobot } from './telegram.js';
 import { isApiRobot, parseApiRobot, type ApiRobot } from './api.js';
 import { isFeedRobot, parseFeedRobot, type FeedRobot } from './feed.js';
+import { projectName, projectOf } from './projects.js';
 
 /** A robot is a page walk, a Telegram read, a JSON feed or a published feed. Each is one file on disk. */
 export type Robot = Scenario | TelegramRobot | ApiRobot | FeedRobot;
@@ -32,8 +33,16 @@ export const ROBOTS_DIR = 'robots';
  * quietly become one. Writing over an existing scraper here would destroy minutes of a model's work and
  * a memory of everything it had already handed over, so it is refused and the name is the caller's
  * problem to solve.
+ *
+ * And it says which project it is for: a scraper nobody can place is a scraper nobody looks after.
  */
 export async function createRobot(scenario: Robot, dir = ROBOTS_DIR): Promise<string> {
+  projectName(projectOf(scenario));
+  return placeRobot(scenario, dir);
+}
+
+/** The same refusal to overwrite, for a scraper that already existed once — renamed, or brought back. */
+async function placeRobot(scenario: Robot, dir: string): Promise<string> {
   const path = join(dir, `${safeName(scenario.name)}.json`);
   try {
     await access(path);
@@ -98,7 +107,7 @@ export async function renameRobot(from: string, to: string, dir = ROBOTS_DIR): P
   const renamed = { ...robot, name: wanted } as Robot;
 
   // Refuses if the new name is taken, and does so before anything has moved.
-  await createRobot(renamed, dir);
+  await placeRobot(renamed, dir);
   await rm(join(dir, `${safeName(from)}.json`), { force: true });
   return renamed;
 }
@@ -110,7 +119,9 @@ export async function renameRobot(from: string, to: string, dir = ROBOTS_DIR): P
  * reach the corner it was moved into is a shell on the server. A scraper is minutes of a model's work
  * and a page that has since changed; "I deleted the wrong one" must be answerable.
  */
-export async function deletedRobots(dir = ROBOTS_DIR): Promise<Array<{ file: string; name: string; kind: string; at: string }>> {
+export async function deletedRobots(
+  dir = ROBOTS_DIR,
+): Promise<Array<{ file: string; name: string; kind: string; at: string; project?: string }>> {
   let names: string[];
   try {
     names = await readdir(dir);
@@ -127,6 +138,7 @@ export async function deletedRobots(dir = ROBOTS_DIR): Promise<Array<{ file: str
         file,
         name: robot.name,
         kind: isTelegramRobot(robot) ? 'telegram' : 'web',
+        ...(projectOf(robot) ? { project: projectOf(robot) } : {}),
         // The timestamp went into the filename with its colons flattened; put them back.
         at: stamp.replace(/^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/, '$1T$2:$3:$4.$5Z'),
       });
@@ -137,24 +149,37 @@ export async function deletedRobots(dir = ROBOTS_DIR): Promise<Array<{ file: str
   return deleted.sort((one, other) => other.at.localeCompare(one.at));
 }
 
-/** Lift one back out of that corner, under its own name unless something else has taken it since. */
-export async function restoreRobot(file: string, dir = ROBOTS_DIR): Promise<Robot> {
+/**
+ * Lift one back out of that corner, under its own name unless something else has taken it since.
+ *
+ * It comes back into the project it was deleted from. One deleted before there were projects has none,
+ * and comes back only once somebody says where it goes.
+ */
+export async function restoreRobot(file: string, dir = ROBOTS_DIR, project?: string): Promise<Robot> {
   if (!/^[^/\\]+\.deleted-[^.]+\.json$/.test(file)) throw new InputError('that is not a deleted scraper');
 
   const path = join(dir, file);
-  const robot = parseRobot(JSON.parse(await readFile(path, 'utf8')));
-  await createRobot(robot, dir);
+  const found = parseRobot(JSON.parse(await readFile(path, 'utf8')));
+  const robot: Robot = { ...found, project: projectName(projectOf(found) ?? project) };
+  await placeRobot(robot, dir);
   await rm(path, { force: true });
   return robot;
 }
 
-export async function loadRobot(name: string, dir = ROBOTS_DIR): Promise<Robot> {
+/**
+ * One robot by name. Asked on behalf of one project, a robot of another project is not there at all —
+ * the same answer, word for word, as one that never existed, so a key cannot be used to find out what
+ * the rest of the account is scraping.
+ */
+export async function loadRobot(name: string, dir = ROBOTS_DIR, project?: string): Promise<Robot> {
   const path = join(dir, `${safeName(name)}.json`);
   try {
-    return parseRobot(JSON.parse(await readFile(path, 'utf8')));
+    const robot = parseRobot(JSON.parse(await readFile(path, 'utf8')));
+    if (project !== undefined && projectOf(robot) !== project) throw Object.assign(new Error(), { code: 'ENOENT' });
+    return robot;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      const known = (await listRobots(dir)).map((robot) => robot.name);
+      const known = (await listRobots(dir, project)).map((robot) => robot.name);
       throw new InputError(
         known.length
           ? `no robot named "${name}". Known robots: ${known.join(', ')}`
@@ -190,9 +215,12 @@ export interface RobotSummary {
   pagination: string;
   /** Which proxy this robot goes out through, if any. */
   proxy?: string;
+  /** Which project it works for. Missing only on scrapers made before there were projects. */
+  project?: string;
 }
 
-export async function listRobots(dir = ROBOTS_DIR): Promise<RobotSummary[]> {
+/** Every robot in the directory, or only those of one project. */
+export async function listRobots(dir = ROBOTS_DIR, project?: string): Promise<RobotSummary[]> {
   let names: string[];
   try {
     names = await readdir(dir);
@@ -208,8 +236,10 @@ export async function listRobots(dir = ROBOTS_DIR): Promise<RobotSummary[]> {
   for (const file of names.filter(listable)) {
     try {
       const robot = parseRobot(JSON.parse(await readFile(join(dir, file), 'utf8')));
-      robots.push(
-        isApiRobot(robot)
+      const belongs = projectOf(robot);
+      if (project !== undefined && belongs !== project) continue;
+      robots.push({
+        ...(isApiRobot(robot)
           ? {
               name: robot.name,
               kind: 'api' as const,
@@ -245,8 +275,9 @@ export async function listRobots(dir = ROBOTS_DIR): Promise<RobotSummary[]> {
               ...(robot.sift ? { sift: robot.sift.keep.length + (robot.sift.drop?.length ?? 0) } : {}),
               pagination: robot.pagination.type,
               ...(robot.proxy ? { proxy: robot.proxy } : {}),
-            },
-      );
+            }),
+        ...(belongs ? { project: belongs } : {}),
+      });
     } catch {
       // A file that is not a valid scenario is not a robot. Listing must not die because of it.
     }

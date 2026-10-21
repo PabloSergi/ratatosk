@@ -49,3 +49,20 @@ test('a scraper file that is not a scraper is refused with a readable reason', a
   assert.equal(answer.code, 2);
   assert.doesNotMatch(answer.stderr, /at Object|at Module|\.js:\d+/, 'a stack trace is not a reason');
 });
+
+test('the scrapers are listed project by project, or for one project alone', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ratatosk-cli-'));
+  const channel = (name, project) => ({ name, version: 1, source: 'telegram', channels: [name], limit: 5, ...(project ? { project } : {}) });
+  await writeFile(join(dir, 'flats.json'), JSON.stringify(channel('flats', 'vietrent')));
+  await writeFile(join(dir, 'jobs.json'), JSON.stringify(channel('jobs', 'adult-job')));
+  await writeFile(join(dir, 'old.json'), JSON.stringify(channel('old')));
+
+  const all = await run('node', ['dist/cli.js', 'robots'], { env: { ...process.env, RATATOSK_ROBOTS: dir } });
+  assert.match(all.stdout, /vietrent: 1\n {2}flats/);
+  assert.match(all.stdout, /\(no project — give it one\): 1\n {2}old/);
+
+  const one = await run('node', ['dist/cli.js', 'robots', '--project', 'vietrent', '--json'], {
+    env: { ...process.env, RATATOSK_ROBOTS: dir },
+  });
+  assert.deepEqual(JSON.parse(one.stdout).map((robot) => robot.name), ['flats']);
+});

@@ -37,6 +37,13 @@
   <section class="app" data-view="scrapers" hidden>
     <h2>Build a scraper</h2>
 
+    <div class="row">
+      <label for="buildProject" class="meta">for the project</label>
+      <input type="text" id="buildProject" list="projectNames" placeholder="e.g. vietrent" class="narrow" autocomplete="off">
+      <span class="meta">every scraper belongs to one — pick one of yours or name a new one</span>
+    </div>
+    <datalist id="projectNames"></datalist>
+
     <div class="tabs" id="sourceTabs">
       <button class="tab on" data-source="web">website</button>
       <button class="tab" data-source="telegram">telegram</button>
@@ -101,6 +108,8 @@
   <section class="app" data-view="scrapers" hidden>
     <h2>Scrapers</h2>
     <div id="runsStatus" class="meta">checking…</div>
+    <div class="tabs" id="projects"></div>
+    <div id="placing"></div>
     <div class="tabs" id="kinds"></div>
     <div id="scrapers" class="meta">loading…</div>
     <div id="waiting"></div>
@@ -119,8 +128,14 @@
     </p>
     <div class="row">
       <input type="text" id="keyLabel" placeholder="what will use it — e.g. n8n nightly">
+      <input type="text" id="keyProject" list="projectNames" placeholder="only this project (or the whole account)" class="narrow">
       <button class="primary" id="keyCreate">Make a key</button>
     </div>
+    <p class="meta">
+      A key bound to a project sees that project&rsquo;s scrapers and nothing else, and asking it for the
+      harvest or for what has vanished without naming a scraper answers for all of them — so the
+      workflow on the far side never has to keep a list of names.
+    </p>
     <div id="keysStatus" class="meta spaced"></div>
     <div id="keysList"></div>
 

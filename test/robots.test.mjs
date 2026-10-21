@@ -77,3 +77,48 @@ test('a deleted robot leaves the list but not the disk', async () => {
   assert.ok(JSON.parse(await readFile(removed, 'utf8')).name === 'goes', 'the file itself survives a misplaced click');
   await assert.rejects(() => loadRobot('goes', dir), /no robot named/);
 });
+
+test('a new robot is refused without a project, and keeps the one it is given', async () => {
+  const { createRobot } = await import('../src/robots.ts');
+  const dir = await mkdtemp(join(tmpdir(), 'ratatosk-'));
+  try {
+    await assert.rejects(() => createRobot(scenario('nowhere'), dir), /belongs to a project/);
+    await createRobot({ ...scenario('flats'), project: 'rent' }, dir);
+    assert.equal((await loadRobot('flats', dir)).project, 'rent');
+    assert.equal((await listRobots(dir))[0].project, 'rent');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('asked on behalf of one project, the others are not there at all', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'ratatosk-'));
+  try {
+    await saveRobot({ ...scenario('flats'), project: 'rent' }, dir);
+    await saveRobot({ ...scenario('vacancies'), project: 'jobs' }, dir);
+    await saveRobot(scenario('legacy'), dir); // from before there were projects: still listed, still loads
+
+    assert.deepEqual((await listRobots(dir, 'rent')).map((robot) => robot.name), ['flats']);
+    assert.equal((await listRobots(dir)).length, 3);
+    assert.equal((await loadRobot('legacy', dir)).name, 'legacy');
+
+    // The same words as for a name that never existed, and only this project's names offered.
+    await assert.rejects(() => loadRobot('vacancies', dir, 'rent'), /no robot named "vacancies". Known robots: flats$/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a project survives everything that rewrites a robot', async () => {
+  const { renameRobot } = await import('../src/robots.ts');
+  const dir = await mkdtemp(join(tmpdir(), 'ratatosk-'));
+  try {
+    await saveRobot({ ...scenario('flats'), project: 'rent' }, dir);
+    const renamed = await renameRobot('flats', 'flats-hcmc', dir);
+    assert.equal(renamed.project, 'rent');
+    // Read back through the parser, as a repair or a rule change does before saving.
+    assert.equal((await loadRobot('flats-hcmc', dir)).project, 'rent');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

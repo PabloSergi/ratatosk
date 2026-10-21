@@ -15,6 +15,8 @@ import {
   verdictBars,
   stateTabs,
   waitingList,
+  projectTabs,
+  keysList,
 } from '../web/render.ts';
 
 /**
@@ -355,4 +357,43 @@ test('источник за дверью показывается с кнопк�
   assert.ok(html.includes('data-door-proxy="f77737ab"'), 'и тот же выход, иначе пропуск ляжет в чужой профиль');
   assert.ok(html.includes('data-door-forget="liveshow-jobs"'));
   assert.ok(html.includes('Waiting for you (1)'));
+});
+
+test('projects are tabs that say how many scrapers each has and how many need looking at', () => {
+  const html = projectTabs(
+    [
+      { project: 'vietrent', count: 5, troubled: 1 },
+      { project: 'adult-job', count: 176, troubled: 0 },
+      { project: '', count: 3, troubled: 0 },
+    ],
+    'vietrent',
+  );
+  assert.match(html, /data-project="all"[^>]*>every project <span>184<\/span> <span class="troubled">1 need looking at/);
+  assert.match(html, /class="tab project on" data-project="vietrent">vietrent <span>5<\/span>/);
+  assert.doesNotMatch(html, /adult-job <span>176<\/span> <span class="troubled">/, 'a healthy project says nothing more');
+  assert.match(html, /unplaced[^"]*" data-project="">no project yet <span>3/, 'the unplaced ones ask to be sorted out');
+});
+
+test('a scraper with no project says so on its card, with the way to give it one', () => {
+  const base = { name: 'legacy', kind: 'web', url: 'https://example.com', fields: ['title'], pagination: 'none' };
+  const unplaced = scraperCard(base);
+  assert.match(unplaced, /belongs to no project yet/);
+  assert.match(unplaced, /data-scraper-project="legacy"/);
+  assert.match(unplaced, /data-project-for="legacy"/);
+
+  const placed = scraperCard({ ...base, project: 'rent' }, undefined, undefined, undefined, true);
+  assert.doesNotMatch(placed, /no project yet/);
+  assert.match(placed, /<span class="kind project">rent<\/span>/, 'shown among every project, it says which');
+  assert.doesNotMatch(scraperCard({ ...base, project: 'rent' }), /kind project/, 'inside its project it need not');
+});
+
+test('a key says what it can see, and can be bound from its row', () => {
+  const html = keysList([
+    { id: 'a1', label: 'n8n -> vietrent', hint: 'rtk_abcd…', createdAt: '2026-10-01T00:00:00Z', project: 'vietrent' },
+    { id: 'b2', label: 'old', hint: 'rtk_efgh…', createdAt: '2026-10-01T00:00:00Z' },
+  ]);
+  assert.match(html, /sees only <b>vietrent<\/b>/);
+  assert.match(html, /sees every project of this account/);
+  assert.match(html, /data-key-project="a1"/);
+  assert.match(html, /value="vietrent" data-key-project-for="a1"/);
 });

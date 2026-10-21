@@ -76,7 +76,10 @@ export async function remember(file: string, run: Run): Promise<void> {
 /**
  * The most recent runs, newest first. A robot name narrows it to one robot's own story.
  */
-export async function recent(file: string, options: { robot?: string; limit?: number } = {}): Promise<Run[]> {
+export async function recent(
+  file: string,
+  options: { robot?: string; robots?: ReadonlySet<string>; limit?: number } = {},
+): Promise<Run[]> {
   const limit = options.limit ?? 100;
   let lines: string[];
   try {
@@ -90,6 +93,7 @@ export async function recent(file: string, options: { robot?: string; limit?: nu
     const run = parse(lines[index]!);
     if (!run) continue;
     if (options.robot && run.robot !== options.robot) continue;
+    if (options.robots && !options.robots.has(run.robot)) continue;
     runs.push(run);
   }
   return runs;

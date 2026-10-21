@@ -517,6 +517,18 @@ input.renaming {
 .tabs .tab.state-empty { color: var(--empty); border-color: color-mix(in oklab, var(--empty) 30%, var(--edge)); }
 .tabs .tab.state-empty.on { border-color: var(--empty); color: var(--empty); }
 
+/* Projects sit above kind and health as the bigger question, so their row is set off from the one
+   below; what needs looking at inside a project is said on its tab, in the warning colour. */
+#projects { padding-bottom: 12px; border-bottom: 1px solid var(--edge); }
+.tabs .tab.project .troubled { color: var(--broken); font-weight: 500; }
+.tabs .tab.project.unplaced { color: var(--empty); border-style: dashed; }
+.item .unplaced-note { margin-top: 6px; color: var(--empty); }
+.item .unplaced { margin-top: 4px; gap: 8px; flex-wrap: nowrap; }
+/* A project is one short word: its field beside a card or a key is sized for one, not for a URL. */
+.item .unplaced input[type=text],
+.scraper .row input[type=text],
+#placing input[type=text] { flex: 0 1 180px; min-width: 120px; }
+
 /* --- tables ------------------------------------------------------------------------------- */
 
 table {

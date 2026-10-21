@@ -20,7 +20,9 @@ npm run build && npm run mcp        # stdio server
 ```
 
 The token names the account whose scrapers this server speaks for — copy it from **token for MCP** in the
-web view. Without accounts it is not needed; with accounts, a missing one is refused rather than
+web view. `RATATOSK_PROJECT` beside it narrows the server to one project: it lists and fetches only that
+project's scrapers, and whatever it saves lands there. Without it, `save` and `build` take a `project`
+argument — every scraper belongs to one. Without accounts it is not needed; with accounts, a missing one is refused rather than
 quietly showing somebody else's scrapers. See [accounts](accounts.md).
 
 ## Building a scraper — five tools, used in a loop

@@ -23,9 +23,14 @@ test('an account is made, a scraper is built, run, and remembered', async ({ pag
   await expect(page.locator('nav#views')).toBeVisible();
   await expect(page.locator('#who')).toContainText(email);
 
-  // Build it from plain rules: instant, free, and enough for a list this obvious.
+  // Every scraper belongs to a project: without one the build is refused before anything is opened.
   await page.fill('#url', SITE);
   await page.fill('#name', 'fixture-jobs');
+  await page.click('#draft');
+  await expect(page.locator('#buildOut')).toContainText('belongs to a project');
+
+  // Build it from plain rules: instant, free, and enough for a list this obvious.
+  await page.fill('#buildProject', 'e2e');
   await page.click('#draft');
 
   await expect(page.locator('#resultTitle')).toContainText('fixture-jobs', { timeout: 60_000 });
@@ -35,6 +40,7 @@ test('an account is made, a scraper is built, run, and remembered', async ({ pag
   const card = page.locator('.item', { hasText: 'fixture-jobs' });
   await expect(card).toBeVisible();
   await expect(card).toContainText('127.0.0.1:5610');
+  await expect(page.locator('#projects')).toContainText('e2e');
 
   // And running it returns rows from the site, not a promise of them.
   await card.getByRole('button', { name: 'Run', exact: true }).click();
@@ -54,6 +60,8 @@ test('a scraper card says how the scraper is doing, not just what it is', async 
   await page.fill('#authEmail', `second-${Date.now()}@example.com`);
   await page.fill('#authPassword', 'a-long-enough-password');
   await page.click('#authRegister');
+
+  await page.fill('#buildProject', 'e2e');
 
   await page.fill('#url', SITE);
   await page.fill('#name', 'standing-check');
@@ -87,6 +95,8 @@ test('deleting a scraper asks first, and then it is gone', async ({ page }) => {
   await page.fill('#authEmail', `fourth-${Date.now()}@example.com`);
   await page.fill('#authPassword', 'a-long-enough-password');
   await page.click('#authRegister');
+
+  await page.fill('#buildProject', 'e2e');
 
   await page.fill('#url', SITE);
   await page.fill('#name', 'doomed');
@@ -123,6 +133,8 @@ test('a scraper built from a page can be given a rule, tried, and kept', async (
   await page.fill('#authPassword', 'a-long-enough-password');
   await page.click('#authRegister');
 
+  await page.fill('#buildProject', 'e2e');
+
   await page.fill('#url', SITE);
   await page.fill('#name', 'sifted');
   await page.click('#draft');
@@ -154,6 +166,8 @@ test('a scraper that remembers hands back only what it has not seen', async ({ p
   await page.fill('#authPassword', 'a-long-enough-password');
   await page.click('#authRegister');
 
+  await page.fill('#buildProject', 'e2e');
+
   await page.fill('#url', SITE);
   await page.fill('#name', 'remembers');
   await page.click('#draft');
@@ -182,6 +196,8 @@ test('a scraper can be checked without running it, and says what it found', asyn
   await page.fill('#authPassword', 'a-long-enough-password');
   await page.click('#authRegister');
 
+  await page.fill('#buildProject', 'e2e');
+
   await page.fill('#url', SITE);
   await page.fill('#name', 'checkable');
   await page.click('#draft');
@@ -204,6 +220,8 @@ test('a scraper can be renamed by its own name, and keeps what it did', async ({
   await page.fill('#authEmail', `eighth-${Date.now()}@example.com`);
   await page.fill('#authPassword', 'a-long-enough-password');
   await page.click('#authRegister');
+
+  await page.fill('#buildProject', 'e2e');
 
   await page.fill('#url', SITE);
   await page.fill('#name', 'misnamed');
@@ -235,6 +253,8 @@ test('what a run put on the screen can be taken away as a file', async ({ page }
   await page.fill('#authEmail', `ninth-${Date.now()}@example.com`);
   await page.fill('#authPassword', 'a-long-enough-password');
   await page.click('#authRegister');
+
+  await page.fill('#buildProject', 'e2e');
 
   await page.fill('#url', SITE);
   await page.fill('#name', 'takeaway');
@@ -303,6 +323,8 @@ test('what a run brought back can be opened again from its history', async ({ pa
   await page.fill('#authPassword', 'a-long-enough-password');
   await page.click('#authRegister');
 
+  await page.fill('#buildProject', 'e2e');
+
   await page.fill('#url', SITE);
   await page.fill('#name', 'keeper');
   await page.click('#draft');
@@ -335,6 +357,8 @@ test('what a scraper is asked, it answers on its own card', async ({ page }) => 
   await page.fill('#authEmail', `eleventh-${Date.now()}@example.com`);
   await page.fill('#authPassword', 'a-long-enough-password');
   await page.click('#authRegister');
+
+  await page.fill('#buildProject', 'e2e');
 
   await page.fill('#url', SITE);
   await page.fill('#name', 'answers-here');

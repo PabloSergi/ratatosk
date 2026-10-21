@@ -20,6 +20,8 @@ import { StringSession } from 'telegram/sessions/index.js';
 export interface TelegramRobot {
   name: string;
   version: 1;
+  /** Which project it works for — see src/projects.ts. */
+  project?: string;
   source: 'telegram';
   /** Which connected account reads these channels. Absent means the only one there is. */
   account?: string;

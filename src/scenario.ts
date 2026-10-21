@@ -7,6 +7,8 @@
 export interface Scenario {
   name: string;
   version: 1;
+  /** Which project it works for — see src/projects.ts. */
+  project?: string;
   url: string;
   /** How to know the page is actually rendered. Never analyse a challenge page. */
   wait: WaitRule;
