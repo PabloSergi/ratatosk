@@ -5,11 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Ratatosk</title>
 <link rel="stylesheet" href="/styles.css">
+<script>
+  // Before the first paint, so a page asked to be dark does not flash white on every load.
+  try {
+    const theme = localStorage.getItem('ratatosk.theme');
+    if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+  } catch {}
+</script>
 </head>
 <body>
 <header>
   <h1><i class="mark" aria-hidden="true">ᚱ</i>Ratatosk <span>scrapers that say when they break</span></h1>
   <div id="who" class="meta" hidden></div>
+  <div class="theme" id="theme" role="group" aria-label="colours">
+    <button data-theme-pick="auto" title="as the system is" aria-label="as the system is">&#9680;</button>
+    <button data-theme-pick="light" title="light" aria-label="light">&#9728;&#xFE0E;</button>
+    <button data-theme-pick="dark" title="dark" aria-label="dark">&#9790;</button>
+  </div>
   <nav id="views" class="app" hidden>
     <button class="view-tab on" data-view="scrapers">Scrapers</button>
     <button class="view-tab" data-view="model">Model</button>
@@ -304,5 +316,30 @@
 </main>
 
 <script type="module" src="/app.js"></script>
+<script>
+  // The colours are a matter of this browser, not of the account, so the choice lives here rather than
+  // in app.js: it works on the sign-in screen too, and nothing on the server has to know about it.
+  (() => {
+    const root = document.documentElement;
+    const buttons = document.querySelectorAll('[data-theme-pick]');
+    const show = () => {
+      const now = root.dataset.theme ?? 'auto';
+      for (const button of buttons) button.classList.toggle('on', button.dataset.themePick === now);
+    };
+    for (const button of buttons) {
+      button.addEventListener('click', () => {
+        const pick = button.dataset.themePick;
+        if (pick === 'auto') delete root.dataset.theme;
+        else root.dataset.theme = pick;
+        try {
+          if (pick === 'auto') localStorage.removeItem('ratatosk.theme');
+          else localStorage.setItem('ratatosk.theme', pick);
+        } catch {}
+        show();
+      });
+    }
+    show();
+  })();
+</script>
 </body>
 </html>
