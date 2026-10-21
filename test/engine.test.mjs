@@ -422,6 +422,22 @@ test('the page is turned from the list, not from the row that was just opened', 
   assert.equal(result.rows[5].pay, 'pay for 2-1', 'rows from the later pages are whole too');
 });
 
+/**
+ * The other half of that rule: a field is judged by the rows it was looked for in.
+ *
+ * Rows go unopened for good reasons — read before, or refused by the sift on their title alone — and
+ * asking those rows what is inside them declares a live selector dead. Seven scrapers on the
+ * adult-job account were "broken" this way with nothing wrong with them.
+ */
+test('a deeper field is not rotted when no row was opened to look for it', async () => {
+  const page = new PageWithRows();
+  const result = await runScenario(page, parseScenario(withDetail), { worthOpening: () => false });
+
+  assert.equal(page.opened.length, 0, 'nothing was worth opening');
+  assert.equal(result.status, 'ok', 'and that is not a broken selector');
+  assert.equal(result.rows.length, 3, 'the list rows still come back');
+});
+
 test('a deeper field that is empty in every row is a rotted field, not a quiet gap', async () => {
   const page = new PageWithRows();
   page.evaluate = async function (fn, argument) {

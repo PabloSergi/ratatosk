@@ -84,6 +84,16 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
   let knownAlready = 0;
   let opened = 0;
   const openedPages = new Map<string, Record<string, string | null>>();
+  /**
+   * The rows that were actually read one level in.
+   *
+   * A row nobody opened has no opinion about what is inside it, and the rot check below asks every
+   * row. Rows are skipped for good reasons — read before, or refused by the sift on their title — so
+   * a list where none of this run's rows was worth opening was declaring the deeper field dead and
+   * the scraper broken. Measured on the adult-job account: seven scrapers "broken" with their
+   * selectors intact.
+   */
+  const deepened: Array<Record<string, string | null>> = [];
   const rulesApplied: string[] = [];
 
   try {
@@ -192,6 +202,7 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
           ...(options.worthOpening ? { worthOpening: options.worthOpening } : {}),
           opened,
           seen: openedPages,
+          deepened,
         });
         visited += walked.opened;
         knownAlready += walked.skipped;
@@ -241,10 +252,20 @@ export async function runScenario(page: PageDriver, scenario: Scenario, options:
     // Rows are not the same thing as data. A required column empty in every single row means that
     // column rotted, and the robot is quietly returning less than it promises — which is the exact
     // failure this project exists to stop. Partial rows are still handed back; the verdict is not.
-    const rotted = [...Object.entries(scenario.list.fields), ...Object.entries(scenario.detail?.fields ?? {})]
-      .filter(([, rule]) => !rule.optional)
-      .map(([field]) => field)
-      .filter((field) => rows.every((row) => row[field] === null || row[field] === undefined));
+    const empty = (where: Array<Record<string, string | null>>, field: string): boolean =>
+      where.every((row) => row[field] === null || row[field] === undefined);
+    const required = (fields: Record<string, FieldRule>): string[] =>
+      Object.entries(fields)
+        .filter(([, rule]) => !rule.optional)
+        .map(([field]) => field);
+
+    // A field is judged by the rows it was looked for in. Every row saw the list; only the rows that
+    // were opened saw what is one level in, and asking the others turns a budget or a sift into a
+    // rotted selector.
+    const rotted = [
+      ...required(scenario.list.fields).filter((field) => empty(rows, field)),
+      ...(deepened.length > 0 ? required(scenario.detail?.fields ?? {}).filter((field) => empty(deepened, field)) : []),
+    ];
 
     if (rotted.length > 0) {
       return {
@@ -346,6 +367,8 @@ async function walkIntoRows(
     worthOpening?: (row: Record<string, string | null>) => boolean;
     opened: number;
     seen: Map<string, Record<string, string | null>>;
+    /** Where the rows that were read one level in are collected, for whoever judges the fields. */
+    deepened: Array<Record<string, string | null>>;
   },
 ): Promise<{ opened: number; skipped: number }> {
   const detail = scenario.detail!;
@@ -368,6 +391,7 @@ async function walkIntoRows(
     const already = seen.get(where);
     if (already) {
       Object.assign(row, already);
+      sofar.deepened.push(row);
       continue;
     }
     if (sofar.opened + opened >= detail.maxRows) break;
@@ -393,6 +417,7 @@ async function walkIntoRows(
       const found = asExtractResult(raw, where).rows[0] ?? {};
       seen.set(where, found);
       Object.assign(row, found);
+      sofar.deepened.push(row);
     } catch {
       // A page that will not open leaves the row as the list had it, which is still an honest row.
       seen.set(where, {});
