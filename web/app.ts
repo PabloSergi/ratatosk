@@ -115,8 +115,17 @@ function answerIn(scraper: string, html: string): void {
   panel.innerHTML = html;
 }
 
-function fail(where: string, error: unknown): void {
-  if (error instanceof ApiError && error.unauthorised) return; // the sign-in screen is already back
+/**
+ * A refusal, said where it happened.
+ *
+ * A 401 anywhere else means the session ran out and the sign-in screen is already back, so saying it
+ * again over the form would be noise. On the form itself it is the opposite: "wrong email or
+ * password" IS the answer to what was just typed, and swallowing it leaves the button flashing and
+ * nothing said — which is exactly how a username typed into a field that wants an email reads as a
+ * broken page.
+ */
+function fail(where: string, error: unknown, evenWhenRefused = false): void {
+  if (!evenWhenRefused && error instanceof ApiError && error.unauthorised) return;
   el(where).innerHTML = `<span class="broken">${escapeHtml(error instanceof Error ? error.message : String(error))}</span>`;
 }
 
@@ -1364,7 +1373,7 @@ for (const [id, kind] of [
     try {
       await enter(kind);
     } catch (error) {
-      fail('authNote', error);
+      fail('authNote', error, true);
     } finally {
       done();
     }
