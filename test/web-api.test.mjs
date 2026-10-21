@@ -800,3 +800,21 @@ test('a scraper deleted before projects comes back only into one', async () => {
   const listed = await call('/api/robots', { project: 'jobs' });
   assert.ok(listed.body.robots.some((robot) => robot.name === 'legacy-deleted'));
 });
+
+test('a project key still answers when its own scrapers are named, as workflows already do', async () => {
+  const made = await call('/api/keys/create', { label: 'rent by name', project: 'rent' });
+  const asRent = asKey(made.body.key);
+
+  // What a workflow written before projects sends: the scraper by name, on the doors it already used.
+  const gone = await asRent('/api/vanished', { name: 'rent-flats', limit: 100000 });
+  assert.equal(gone.status, 200, JSON.stringify(gone.body));
+  assert.deepEqual(gone.body.ids.map((one) => one.id), ['f2']);
+
+  const listed = await asRent('/api/catalogue', { name: 'rent-flats', limit: 1000 });
+  assert.equal(listed.status, 200, JSON.stringify(listed.body));
+
+  // The harvest never took a name; a field it does not know is ignored, not refused.
+  const harvest = await asRent('/api/harvest', { since: '2026-10-02T09:00:00.000Z', robot: 'rent-saigon' });
+  assert.equal(harvest.status, 200);
+  assert.deepEqual(harvest.body.rows.map((row) => row.scraper), ['rent-saigon']);
+});
