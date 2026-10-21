@@ -11,6 +11,7 @@ import { look } from '../look.js';
 import { archivePrevious, listRobots, loadRobot, saveRobot, isBrowserRobot } from '../robots.js';
 import { applyRules, type SiteRule } from '../rules.js';
 import { resolveScope, type Scope } from '../scope.js';
+import { projectName, projectOf } from '../projects.js';
 import { activeConnection, settingsFileFor } from '../settings.js';
 import { repairScenario } from '../repair.js';
 import { runRobot } from '../run-robot.js';
@@ -64,6 +65,28 @@ function ok(value: unknown) {
 
 function fail(message: string) {
   return { isError: true, content: [{ type: 'text' as const, text: message }] };
+}
+
+const PROJECT_FIELD = z
+  .string()
+  .optional()
+  .describe('which project the robot works for, e.g. "vietrent" — every robot belongs to one');
+
+/**
+ * Where a robot saved from here goes. A server bound to a project puts everything there and will not
+ * write over a robot of another project; otherwise the project named, or the one the robot already had
+ * if this is a new version of it. Never none.
+ */
+async function projectFor(name: string, named?: string): Promise<string> {
+  const existing = await loadRobot(name, scope.robotsDir).catch(() => undefined);
+  const had = existing ? projectOf(existing) : undefined;
+  if (scope.project) {
+    if (existing && had !== scope.project) {
+      throw new Error(`a robot called "${name}" already exists outside ${scope.project} — give this one another name`);
+    }
+    return scope.project;
+  }
+  return projectName(named ?? had);
 }
 
 const server = new McpServer({ name: 'ratatosk', version: '0.1.0' });
@@ -138,9 +161,16 @@ server.registerTool(
       fields: z.record(z.string(), FIELD_SCHEMA),
       pagination: PAGINATION_SCHEMA.optional(),
       minRowsPerPage: z.number().int().positive().optional(),
+      project: PROJECT_FIELD,
     },
   },
-  async ({ name, url, rows, fields, pagination, minRowsPerPage }) => {
+  async ({ name, url, rows, fields, pagination, minRowsPerPage, project: named }) => {
+    let project: string;
+    try {
+      project = await projectFor(name, named);
+    } catch (error) {
+      return fail(`not saved: ${error instanceof Error ? error.message : String(error)}`);
+    }
     const scenario = buildScenario({
       name,
       url,
@@ -159,8 +189,8 @@ server.registerTool(
       );
     }
 
-    const path = await saveRobot(scenario, scope.robotsDir);
-    return ok({ saved: path, provenRows: proof.rows.length, sample: proof.rows[0] });
+    const path = await saveRobot({ ...scenario, project }, scope.robotsDir);
+    return ok({ saved: path, project, provenRows: proof.rows.length, sample: proof.rows[0] });
   },
 );
 
@@ -176,9 +206,17 @@ server.registerTool(
       url: z.string().url(),
       want: z.string().describe('what to pull out, in plain words: "vacancies: title, link, city, pay"'),
       name: z.string().min(1),
+      project: PROJECT_FIELD,
     },
   },
-  async ({ url, want, name }) => {
+  async ({ url, want, name, project: named }) => {
+    // Settled before the model is paid for: a build with nowhere to go is money spent on nothing.
+    let project: string;
+    try {
+      project = await projectFor(name, named);
+    } catch (error) {
+      return fail(`not built: ${error instanceof Error ? error.message : String(error)}`);
+    }
     const connection = scope.userId ? await activeConnection(settingsFileFor(scope.userId)) : undefined;
     if (!connection) return fail('this account has no model connection — add one in the web view, Model section');
 
@@ -200,9 +238,10 @@ server.registerTool(
       );
     }
 
-    const path = await saveRobot(result.scenario, scope.robotsDir);
+    const path = await saveRobot({ ...result.scenario, project }, scope.robotsDir);
     return ok({
       saved: path,
+      project,
       rows: result.rows.length,
       coverage: result.verdict.coverage,
       pagination: result.scenario.pagination,
@@ -216,10 +255,17 @@ server.registerTool(
   'robots',
   {
     title: 'List robots',
-    description: 'The robots that exist, with the columns each one returns. No selectors — you do not need them.',
-    inputSchema: {},
+    description:
+      'The robots that exist, with the columns each one returns and the project each works for. ' +
+      'Name a project to see only its robots. No selectors — you do not need them.',
+    inputSchema: { project: z.string().optional().describe('only the robots of this project') },
   },
-  async () => ok(await listRobots(scope.robotsDir)),
+  async ({ project }) => {
+    if (scope.project && project && project.toLowerCase() !== scope.project) {
+      return fail(`this server works in ${scope.project} only`);
+    }
+    return ok(await listRobots(scope.robotsDir, scope.project ?? (project ? projectName(project) : undefined)));
+  },
 );
 
 server.registerTool(
@@ -232,7 +278,7 @@ server.registerTool(
     inputSchema: { name: z.string(), maxPages: z.number().int().positive().max(200).optional() },
   },
   async ({ name, maxPages }) => {
-    const robot = await loadRobot(name, scope.robotsDir);
+    const robot = await loadRobot(name, scope.robotsDir, scope.project);
     const result = await runRobot(robot, {
       page: async () => {
         if (!session) session = await openBrowser();
@@ -267,7 +313,7 @@ server.registerTool(
     },
   },
   async ({ name, apply }) => {
-    const robot = await loadRobot(name, scope.robotsDir);
+    const robot = await loadRobot(name, scope.robotsDir, scope.project);
     if (!isBrowserRobot(robot)) {
       return fail(`${name} does not read a page, and there are no selectors to repair — edit its source instead.`);
     }
@@ -319,6 +365,6 @@ process.on('SIGTERM', shutdown);
 
 rules = await loadRules('rules');
 // A token from the web view names the account; without accounts, this is somebody's own machine.
-scope = await resolveScope(process.env['RATATOSK_TOKEN']);
-console.error(`ratatosk mcp — robots of ${scope.who}`);
+scope = await resolveScope(process.env['RATATOSK_TOKEN'], process.env['RATATOSK_PROJECT']);
+console.error(`ratatosk mcp — robots of ${scope.who}${scope.project ? `, project ${scope.project}` : ''}`);
 await server.connect(new StdioServerTransport());

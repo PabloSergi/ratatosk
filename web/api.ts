@@ -114,9 +114,13 @@ export const api = {
   scrapers: async () => ({ scrapers: (await post<{ robots: RobotSummary[] }>('/api/robots')).robots }),
   run: (name: string, maxPages?: number) => post<RunResult>('/api/run', { name, maxPages }),
   repair: (name: string) => post<Partial<RepairResult> & { rule?: RuleRepair }>('/api/repair', { name }),
-  agent: (url: string, want: string, name: string, proxy?: string) =>
-    post<AgentResult>('/api/agent', { url, want, name, proxy }),
-  draft: (url: string, name: string, proxy?: string) => post<DraftResult>('/api/draft', { url, name, proxy }),
+  agent: (url: string, want: string, name: string, proxy: string | undefined, project: string) =>
+    post<AgentResult>('/api/agent', { url, want, name, proxy, project }),
+  draft: (url: string, name: string, proxy: string | undefined, project: string) =>
+    post<DraftResult>('/api/draft', { url, name, proxy, project }),
+  /** Into one project — one scraper or a whole screenful of them at once. */
+  moveToProject: (names: string[], project: string) =>
+    post<{ project: string; moved: string[] }>('/api/robot/project', { names, project }),
 
   models: () => post<{ connections: ConnectionView[]; providers: Record<ProviderId, Provider> }>('/api/models'),
   catalogue: (provider: ProviderId, key?: string, baseUrl?: string, refresh = false) =>
@@ -146,8 +150,8 @@ export const api = {
   checkProxy: (id: string) => post<ProxyView & { exitIp: string; latencyMs: number }>('/api/proxies/check', { id }),
   /** One page, no model, nothing remembered: is this scraper still getting rows out of that site? */
   deletedScrapers: () =>
-    post<{ deleted: Array<{ file: string; name: string; kind: string; at: string }> }>('/api/robot/deleted'),
-  restoreScraper: (file: string) => post<{ restored: string }>('/api/robot/restore', { file }),
+    post<{ deleted: Array<{ file: string; name: string; kind: string; at: string; project?: string }> }>('/api/robot/deleted'),
+  restoreScraper: (file: string, project?: string) => post<{ restored: string }>('/api/robot/restore', { file, project }),
   /** Sources that stopped at a door meant for a person, and the two things one can do about them. */
   waiting: () => post<{ waiting: WaitingSource[] }>('/api/waiting'),
   forgetWaiting: (name: string) => post<{ waiting: WaitingSource[] }>('/api/waiting/forget', { name }),
@@ -182,7 +186,8 @@ export const api = {
   history: (scraper?: string) => post<{ runs: Run[]; standing: Standing[] }>('/api/history', { robot: scraper }),
 
   keys: () => post<{ keys: KeyView[] }>('/api/keys', {}),
-  createKey: (label: string) => post<{ key: string; keys: KeyView[] }>('/api/keys/create', { label }),
+  createKey: (label: string, project?: string) => post<{ key: string; keys: KeyView[] }>('/api/keys/create', { label, project }),
+  bindKey: (id: string, project?: string) => post<{ keys: KeyView[] }>('/api/keys/project', { id, project }),
   revokeKey: (id: string) => post<{ keys: KeyView[] }>('/api/keys/revoke', { id }),
   rule: (name: string) =>
     post<{ name: string; sift: Sift | null; remember: boolean; dedupe: boolean }>('/api/robot/rule', { name }),
@@ -229,7 +234,16 @@ export const api = {
   telegramSignIn: (phone: string, code: string, password: string) =>
     post<{ account: string; id: string; accounts: TelegramAccount[] }>('/api/telegram/sign-in', { phone, code, password }),
   telegramForget: (id: string) => post<{ accounts: TelegramAccount[] }>('/api/telegram/forget', { id }),
-  telegramRobot: (input: { channels: string; name: string; limit: number; contains: string; want: string; account?: string; fromToday: boolean }) =>
+  telegramRobot: (input: {
+    channels: string;
+    name: string;
+    limit: number;
+    contains: string;
+    want: string;
+    account?: string;
+    fromToday: boolean;
+    project: string;
+  }) =>
     post<{
       saved: string[];
       /** One per channel: several groups behind one scraper hide each other's silence. */

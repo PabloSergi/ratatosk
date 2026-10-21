@@ -16,7 +16,8 @@ import {
   verifyToken,
   verifyUser,
 } from './auth.js';
-import { createKey, keysFileFor, listKeys, looksLikeKey, revokeKey, whoseKey } from './keys.js';
+import { bindKey, createKey, keysFileFor, listKeys, looksLikeKey, revokeKey, whichKey } from './keys.js';
+import { projectName, projectOf } from './projects.js';
 import { draftScenario } from './draft.js';
 import { openBrowser } from './drivers/patchright.js';
 import { repairScenario } from './repair.js';
@@ -53,7 +54,7 @@ import { judgeSift, sift, type Sift } from './sift.js';
 import { closeBridges } from './socks-bridge.js';
 import { findTakeover, startTakeover, stopAllTakeovers, stopTakeover, takeoversOf } from './takeover.js';
 import { liveLog, liveStream, nextFrame, viewerPage } from './live-view.js';
-import { InputError } from './errors.js';
+import { Forbidden, InputError } from './errors.js';
 import { failure, info, log, warn } from './log.js';
 import { alertsFileFor, DEFAULT_AFTER, readAlerts, tell, viewAlerts, whatToSay, writeAlerts } from './alerts.js';
 import { forgetResults, harvestSince, keepResult, keptRuns, moveResults, readResult } from './results.js';
@@ -111,6 +112,67 @@ const pool = makePool();
 interface Caller {
   id: string;
   email: string;
+  /** Set when the caller is a key bound to one project: then nothing outside it exists for them. */
+  project?: string;
+}
+
+/**
+ * The project a request is about. A key bound to one decides it and cannot be talked out of it; anyone
+ * else may name one to narrow what comes back, or name none and see the whole account as before.
+ */
+function projectAsked(body: Record<string, unknown>, user: Caller): string | undefined {
+  const named = String(body['project'] ?? '').trim();
+  if (user.project) {
+    if (named && named.toLowerCase() !== user.project) throw new Forbidden(`this key is for the ${user.project} project only`);
+    return user.project;
+  }
+  return named ? projectName(named) : undefined;
+}
+
+/** Where a new scraper goes: the key's own project, or the one named. Never nowhere. */
+function projectForNew(body: Record<string, unknown>, user: Caller): string {
+  return projectAsked(body, user) ?? projectName(body['project']);
+}
+
+/**
+ * What a key bound to one project may do, and which field of the body names the scraper it is done to.
+ *
+ * Read, run, schedule, collect, build — what a product's own automation needs. Not the account's
+ * keys, model connections, proxies or Telegram sessions, and not renaming, deleting or moving scrapers:
+ * those are decisions about the whole account, and the person who owns it makes them signed in.
+ */
+const PROJECT_DOORS: Record<string, string | null> = {
+  '/api/auth/me': null,
+  '/api/robots': null,
+  '/api/run': 'name',
+  '/api/history': 'robot',
+  '/api/repair': 'name',
+  '/api/agent': null,
+  '/api/draft': null,
+  '/api/telegram/robot': null,
+  '/api/robot/check': 'name',
+  '/api/robot/rule': 'name',
+  '/api/schedules': null,
+  '/api/schedule/set': 'name',
+  '/api/schedule/now': 'name',
+  '/api/results': 'name',
+  '/api/results/get': 'name',
+  '/api/harvest': null,
+  '/api/photos': 'name',
+  '/api/catalogue': 'name',
+  '/api/vanished': 'name',
+};
+
+/**
+ * Checked once, at the door, rather than in every route: a route added next year is closed to a project
+ * key until somebody decides it should be open, instead of open until somebody remembers to close it.
+ */
+async function withinProject(path: string, body: Record<string, unknown>, user: Caller): Promise<void> {
+  if (!user.project) return;
+  if (!(path in PROJECT_DOORS)) throw new Forbidden(`this key is for the ${user.project} project and does not open ${path}`);
+  const field = PROJECT_DOORS[path];
+  // A scraper of another project answers exactly as one that does not exist.
+  if (field && body[field]) await loadRobot(String(body[field]), robotsDirFor(user.id), user.project);
 }
 
 /** Open to anyone: creating an account and signing in. Everything else needs a token. */
@@ -136,7 +198,7 @@ const publicRoutes: Record<string, (body: Record<string, unknown>) => Promise<un
 const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Promise<unknown>> = {
   '/api/auth/me': async (_body, user) => ({ user }),
 
-  '/api/robots': async (_body, user) => ({ robots: await listRobots(robotsDirFor(user.id)) }),
+  '/api/robots': async (body, user) => ({ robots: await listRobots(robotsDirFor(user.id), projectAsked(body, user)) }),
 
   '/api/run': async (body, user) =>
     runForAccount(user.id, String(body['name']), {
@@ -153,13 +215,22 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
   '/api/keys': async (_body, user) => ({ keys: await listKeys(keysFileFor(user.id)) }),
 
   '/api/keys/create': async (body, user) => {
-    const made = await createKey(keysFileFor(user.id), String(body['label'] ?? ''));
+    const project = body['project'] ? String(body['project']) : undefined;
+    const made = await createKey(keysFileFor(user.id), String(body['label'] ?? ''), project);
     // The only time the key itself is ever returned. After this there is only its hash.
     return { key: made.key, keys: await listKeys(keysFileFor(user.id)) };
   },
 
   '/api/keys/revoke': async (body, user) => {
     await revokeKey(keysFileFor(user.id), String(body['id'] ?? ''));
+    return { keys: await listKeys(keysFileFor(user.id)) };
+  },
+
+  /** Narrow a key to one project, or widen it back to the account — the key itself stays the same. */
+  '/api/keys/project': async (body, user) => {
+    const project = body['project'] ? String(body['project']) : undefined;
+    const key = await bindKey(keysFileFor(user.id), String(body['id'] ?? ''), project);
+    log('info', 'key bound', { user: user.id, key: key.id, project: key.project ?? null });
     return { keys: await listKeys(keysFileFor(user.id)) };
   },
 
@@ -170,9 +241,15 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     // A scraper that was deleted is nobody's problem any more. Its runs stay in the journal — that is
     // what a journal is for — but the line that says how many need looking at must count the ones that
     // exist, or it asks for attention to something there is no longer a card for.
-    const alive = new Set((await listRobots(robotsDirFor(user.id))).map((entry) => entry.name));
+    const project = projectAsked(body, user);
+    const alive = new Set((await listRobots(robotsDirFor(user.id), project)).map((entry) => entry.name));
     return {
-      runs: await recent(file, { ...(robot ? { robot } : {}), limit: Number(body['limit'] ?? 60) || 60 }),
+      runs: await recent(file, {
+        ...(robot ? { robot } : {}),
+        // Narrowed to a project, the journal speaks only of the scrapers in it.
+        ...(project ? { robots: alive } : {}),
+        limit: Number(body['limit'] ?? 60) || 60,
+      }),
       standing: (await standing(file)).filter((entry) => alive.has(entry.robot)),
     };
   },
@@ -248,6 +325,8 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     const want = String(body['want'] || 'the main list on this page, with every column that carries meaning');
     const name = String(body['name'] || new URL(url).hostname.replace(/^www\./, '').split('.')[0]);
     const proxy = body['proxy'] ? String(body['proxy']) : undefined;
+    // Asked before the model is: a build that cannot be saved anywhere is money spent on nothing.
+    const project = projectForNew(body, user);
     return pool.use(poolKey(user.id, proxy), async (session) => {
       const started = Date.now();
       const result = await buildWithModel(session.page, {
@@ -287,7 +366,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
 
       // A robot built through a proxy must keep going through it: the address is part of how it works.
       if (result.scenario && result.verdict?.good) {
-        await createRobot({ ...result.scenario, ...(proxy ? { proxy } : {}) }, robotsDirFor(user.id));
+        await createRobot({ ...result.scenario, project, ...(proxy ? { proxy } : {}) }, robotsDirFor(user.id));
       }
       return result;
     });
@@ -746,9 +825,12 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
    * machine they have to ssh into, each carrying a key, and nothing in the product knowing whether any
    * of it happens. This is an interval and a next time, and nothing that belongs to a workflow engine.
    */
-  '/api/schedules': async (_body, user) => {
+  '/api/schedules': async (body, user) => {
     if (!usingDatabase()) return { schedules: [], off: 'no database configured, so nothing can be scheduled' };
-    return { schedules: await schedulesFor(user.id), waiting: usingQueue() ? await waiting().catch(() => 0) : 0 };
+    const project = projectAsked(body, user);
+    const mine = project ? new Set((await listRobots(robotsDirFor(user.id), project)).map((robot) => robot.name)) : undefined;
+    const schedules = (await schedulesFor(user.id)).filter((schedule) => !mine || mine.has(schedule.scraper));
+    return { schedules, waiting: usingQueue() ? await waiting().catch(() => 0) : 0 };
   },
 
   '/api/schedule/set': async (body, user) => {
@@ -805,8 +887,11 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
 
     // What a scraper reads decides how the far side must read it back: a table row is already fields,
     // a Telegram post is a paragraph somebody typed. Saying which is which here saves everyone guessing.
-    const kinds = new Map((await listRobots(robotsDirFor(user.id))).map((robot) => [robot.name, robot.kind]));
-    const runs = await harvestSince(user.id, since);
+    // Narrowed to a project, only its scrapers are asked: the far side wants "everything of mine" and
+    // should not have to keep a list of names that goes stale the day a city is added.
+    const project = projectAsked(body, user);
+    const kinds = new Map((await listRobots(robotsDirFor(user.id), project)).map((robot) => [robot.name, robot.kind]));
+    const runs = (await harvestSince(user.id, since)).filter((run) => !project || kinds.has(run.scraper));
 
     /**
      * Where to carry on from, said by the answer rather than guessed by the caller.
@@ -881,29 +966,36 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
    */
   '/api/vanished': async (body, user) => {
     const name = String(body['name'] ?? '');
-    const robot = await loadRobot(name, robotsDirFor(user.id));
-    if (!(robot as { catalogue?: string }).catalogue) {
-      throw new InputError(`${name} does not keep a catalogue, so nothing can be said about what left it`);
+    const asked = String(body['since'] ?? '').trim();
+    const limit = Number(body['limit'] ?? 5000);
+    if (asked && Number.isNaN(Date.parse(asked))) throw new InputError(`"${asked}" is not a time`);
+
+    if (name) {
+      const robot = await loadRobot(name, robotsDirFor(user.id));
+      if (!(robot as { catalogue?: string }).catalogue) {
+        throw new InputError(`${name} does not keep a catalogue, so nothing can be said about what left it`);
+      }
+      const left = await vanishedFrom(user.id, name, asked, limit);
+      if (!left) throw new InputError(`${name} has not completed a pass yet`);
+      return left;
     }
 
-    // The boundary comes from the catalogue itself. Taking it from the journal of runs compares two
-    // different clocks — a run is stamped there when it ended and here when it began — and every row
-    // the last pass saw then reads as missing.
-    const asked = String(body['since'] ?? '').trim();
-    const since = asked || (await lastPassOf(user.id, name));
-    if (!since) throw new InputError(`${name} has not completed a pass yet`);
-    if (Number.isNaN(Date.parse(since))) throw new InputError(`"${asked}" is not a time`);
-
-    const gone = await goneFrom(user.id, name, since);
-    return {
-      since,
-      gone: gone.length,
-      ids: gone.slice(0, Number(body['limit'] ?? 5000)).map((one) => ({
-        id: one.id,
-        firstSeen: one.firstSeen,
-        lastSeen: one.lastSeen,
-      })),
-    };
+    /**
+     * No name: every scraper of the project that keeps a catalogue, one answer each. A product asks
+     * "what has left my sources" and should not have to know how many sources it has this month.
+     */
+    const project = projectAsked(body, user);
+    if (!project) throw new InputError('say which scraper — or which project, to hear about all of its scrapers at once');
+    const dir = robotsDirFor(user.id);
+    const robots = [];
+    for (const summary of await listRobots(dir, project)) {
+      const robot = await loadRobot(summary.name, dir);
+      if (!(robot as { catalogue?: string }).catalogue) continue;
+      const left = await vanishedFrom(user.id, summary.name, asked, limit);
+      // One that has not finished a pass yet has nothing to say; it is listed so its silence is visible.
+      robots.push(left ? { name: summary.name, ...left } : { name: summary.name, since: null, gone: 0, ids: [] });
+    }
+    return { project, robots };
   },
 
   /** What has been deleted and can still be had back. */
@@ -938,7 +1030,8 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
    * about everything it saw before it was deleted.
    */
   '/api/robot/restore': async (body, user) => {
-    const robot = await restoreRobot(String(body['file'] ?? ''), robotsDirFor(user.id));
+    const project = body['project'] ? String(body['project']) : undefined;
+    const robot = await restoreRobot(String(body['file'] ?? ''), robotsDirFor(user.id), project);
     log('info', 'scraper restored', { robot: robot.name, user: user.id });
     return { restored: robot.name };
   },
@@ -965,6 +1058,30 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
 
     log('info', 'scraper renamed', { from, to: renamed.name, user: user.id, runs });
     return { name: renamed.name, was: from, runs };
+  },
+
+  /**
+   * Put scrapers into a project — one, or a list of them at once, because sorting out two hundred made
+   * before there were projects one card at a time is an afternoon nobody will spend. Only into one: a
+   * scraper cannot be taken out of every project, since one that belongs nowhere is lost.
+   */
+  '/api/robot/project': async (body, user) => {
+    const dir = robotsDirFor(user.id);
+    const project = projectName(body['project']);
+    const names = Array.isArray(body['names']) ? (body['names'] as unknown[]).map(String) : [String(body['name'] ?? '')];
+    if (names.length === 0 || names.some((name) => !name)) throw new InputError('say which scrapers');
+
+    // Every one is found before any is written, so a typo in the list moves nothing rather than half.
+    const robots = [];
+    for (const name of names) robots.push(await loadRobot(name, dir));
+    const moved = [];
+    for (const robot of robots) {
+      if (projectOf(robot) === project) continue;
+      await saveRobot({ ...robot, project }, dir);
+      moved.push(robot.name);
+    }
+    log('info', 'scrapers moved', { user: user.id, project, moved: moved.length });
+    return { project, moved };
   },
 
   /** Attach or detach a proxy on a robot that already exists. */
@@ -1108,6 +1225,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
 
     const given = String(body['name'] ?? '').trim();
     const account = body['account'] ? String(body['account']) : undefined;
+    const project = projectForNew(body, user);
     const limit = Number(body['limit'] ?? 100);
     const contains = String(body['contains'] ?? '')
       .split(',')
@@ -1134,6 +1252,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
         name: channels.length === 1 && given ? given : given ? `${given}-${channel}` : channel,
         version: 1,
         source: 'telegram',
+        project,
         account,
         channels: [channel],
         limit,
@@ -1203,9 +1322,12 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
     const url = String(body['url']);
     const name = String(body['name'] || new URL(url).hostname.replace(/^www\./, '').split('.')[0]);
     const proxy = body['proxy'] ? String(body['proxy']) : undefined;
+    const project = projectForNew(body, user);
     return pool.use(poolKey(user.id, proxy), async (session) => {
       const draft = await draftScenario(session.page, { url, name, rules });
-      if (draft.scenario) await createRobot({ ...draft.scenario, ...(proxy ? { proxy } : {}) }, robotsDirFor(user.id));
+      if (draft.scenario) {
+        await createRobot({ ...draft.scenario, project, ...(proxy ? { proxy } : {}) }, robotsDirFor(user.id));
+      }
       return draft;
     });
   },
@@ -1288,11 +1410,31 @@ function sameHost(url: string, host: string): boolean {
 
 /** The account a machine's key belongs to, or nothing anyone can use. */
 async function byKey(key: string): Promise<Caller> {
-  const owner = await whoseKey(key, await userIds());
+  const owner = await whichKey(key, await userIds());
   if (!owner) throw new AuthError('that key is not one of ours, or it was revoked');
-  const user = await findUser(owner);
+  const user = await findUser(owner.userId);
   if (!user) throw new AuthError('that key belongs to an account that no longer exists');
-  return { id: user.id, email: user.email };
+  return { id: user.id, email: user.email, ...(owner.project ? { project: owner.project } : {}) };
+}
+
+/** What has left one scraper's source since a moment, or since its last pass; nothing if it has had none. */
+async function vanishedFrom(
+  userId: string,
+  name: string,
+  asked: string,
+  limit: number,
+): Promise<{ since: string; gone: number; ids: Array<{ id: string; firstSeen: string; lastSeen: string }> } | undefined> {
+  // The boundary comes from the catalogue itself. Taking it from the journal of runs compares two
+  // different clocks — a run is stamped there when it ended and here when it began — and every row
+  // the last pass saw then reads as missing.
+  const since = asked || (await lastPassOf(userId, name));
+  if (!since) return undefined;
+  const gone = await goneFrom(userId, name, since);
+  return {
+    since,
+    gone: gone.length,
+    ids: gone.slice(0, limit).map((one) => ({ id: one.id, firstSeen: one.firstSeen, lastSeen: one.lastSeen })),
+  };
 }
 
 /** One JSON body, read to the end. The api routes have their own; this is for everything else. */
@@ -1463,8 +1605,9 @@ const server = createServer((request: IncomingMessage, response: ServerResponse)
 
       // Two kinds of caller, one door. A person carries a token that expires; a schedule carries a key
       // that does not, because an automation set up today should not stop working in a month.
-      const user = looksLikeKey(token) ? await byKey(token) : await verifyToken(token);
+      const user: Caller = looksLikeKey(token) ? await byKey(token) : await verifyToken(token);
       who = user.id;
+      await withinProject(url.pathname, body, user);
       return guarded!(body, user);
     })();
 
@@ -1476,7 +1619,8 @@ const server = createServer((request: IncomingMessage, response: ServerResponse)
       },
       (error: unknown) => {
         // The message is the product here: whoever is looking at this needs to know what to do next.
-        const status = error instanceof AuthError ? 401 : error instanceof InputError ? 400 : 500;
+        const status =
+          error instanceof AuthError ? 401 : error instanceof Forbidden ? 403 : error instanceof InputError ? 400 : 500;
         // Refused input is the ordinary business of an interface; a 500 is ours to answer for.
         const detail = { path: url.pathname, user: who, status, ms: Date.now() - started };
         if (status === 500) failure('api failed', error, detail);

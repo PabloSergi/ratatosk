@@ -119,6 +119,47 @@ export function verdictBars(verdict: QualityVerdict | undefined): string {
 }
 
 /**
+ * Projects first, because they are the question asked before any other: which product am I looking
+ * after right now. Each says how many scrapers it has and how many of those need looking at, so a
+ * product that is quietly falling apart shows from the row of tabs without being opened.
+ *
+ * Scrapers made before there were projects are offered last, under a name that asks for them to be
+ * sorted out rather than one that sounds like a place they may stay.
+ */
+export function projectTabs(
+  projects: Array<{ project: string; count: number; troubled: number }>,
+  active: string,
+): string {
+  const all = projects.reduce((sum, entry) => sum + entry.count, 0);
+  const troubled = projects.reduce((sum, entry) => sum + entry.troubled, 0);
+  const tab = (project: string, label: string, count: number, bad: number, extra = '') =>
+    `<button class="tab project${extra}${project === active ? ' on' : ''}" data-project="${escapeHtml(project)}">` +
+    `${escapeHtml(label)} <span>${count}</span>${bad ? ` <span class="troubled">${bad} need looking at</span>` : ''}</button>`;
+
+  return [
+    tab('all', 'every project', all, troubled),
+    ...projects.map((entry) =>
+      entry.project
+        ? tab(entry.project, entry.project, entry.count, entry.troubled)
+        : tab('', 'no project yet', entry.count, entry.troubled, ' unplaced'),
+    ),
+  ].join('');
+}
+
+/**
+ * Putting scrapers into a project from the list itself: every one on the screen at once, which is how
+ * the ones made before there were projects get sorted out in a minute rather than an afternoon.
+ */
+export function placeAll(count: number): string {
+  if (!count) return '';
+  return (
+    `<div class="row spaced"><span class="meta">put these ${count} into</span>` +
+    `<input type="text" class="narrow" id="placeAllProject" list="projectNames" placeholder="project">` +
+    `<button data-place-all="${count}">Move them</button></div>`
+  );
+}
+
+/**
  * A scraper's kind is a real difference — a page walk and a Telegram read fail differently and are fixed
  * differently — so it is shown, and the list can be narrowed to one kind at a time.
  */
@@ -235,6 +276,7 @@ export function scraperCard(
     proxy?: string;
     /** How many patterns its rule carries, if it has one. */
     sift?: number;
+    project?: string;
   },
   standing?: {
     status: 'ok' | 'empty' | 'broken';
@@ -249,6 +291,8 @@ export function scraperCard(
   check?: { at: string; ok: boolean; note: string },
   /** How often it runs by itself, if it does. */
   schedule?: { everyMinutes: number; nextAt: string },
+  /** Whether the list is showing every project at once, so the card has to say which one it is in. */
+  mixed = false,
 ): string {
   // How it is now, under what it is. A card that only says what a scraper was built to do cannot tell
   // you the one thing you came to find out.
@@ -271,8 +315,15 @@ export function scraperCard(
         <button class="rename" data-scraper-rename="${escapeHtml(scraper.name)}"
                 title="rename it — the memory of what it has handed over and its whole history come along">${escapeHtml(scraper.name)}</button>${
           scraper.kind ? ` <span class="kind">${escapeHtml(scraper.kind)}</span>` : ''
+        }${mixed && scraper.project ? ` <span class="kind project">${escapeHtml(scraper.project)}</span>` : ''}
+        <div class="meta">${escapeHtml(scraper.url)}</div>${
+          // A scraper with no project says so on its own card, with the way to give it one right there.
+          scraper.project
+            ? ''
+            : `<div class="meta unplaced-note">belongs to no project yet</div><div class="row unplaced">` +
+              `<input type="text" class="narrow" list="projectNames" placeholder="project" data-project-for="${escapeHtml(scraper.name)}">` +
+              `<button data-scraper-project="${escapeHtml(scraper.name)}">Put it there</button></div>`
         }
-        <div class="meta">${escapeHtml(scraper.url)}</div>
         <div class="meta">${scraper.fields.map(escapeHtml).join(' \u00b7 ')}${
           // Columns from inside a row are marked, because they are not free: one page load each.
           scraper.deeper?.length ? ` \u00b7 ${scraper.deeper.map((field) => `${escapeHtml(field)} \u2193`).join(' \u00b7 ')}` : ''
@@ -357,7 +408,9 @@ export function waitingList(
   );
 }
 
-export function deletedList(deleted: Array<{ file: string; name: string; kind: string; at: string }>): string {
+export function deletedList(
+  deleted: Array<{ file: string; name: string; kind: string; at: string; project?: string }>,
+): string {
   if (!deleted.length) return '';
 
   const rows = deleted
@@ -365,7 +418,10 @@ export function deletedList(deleted: Array<{ file: string; name: string; kind: s
       (one) =>
         `<div class="item"><div class="item-main"><b>${escapeHtml(one.name)}</b> ` +
         `<span class="kind">${escapeHtml(one.kind)}</span>` +
-        `<div class="meta">deleted ${escapeHtml(new Date(one.at).toLocaleString())}</div></div>` +
+        (one.project ? ` <span class="kind project">${escapeHtml(one.project)}</span>` : '') +
+        `<div class="meta">deleted ${escapeHtml(new Date(one.at).toLocaleString())}${
+          one.project ? '' : ' · comes back into the project shown above'
+        }</div></div>` +
         `<div class="row"><button data-restore="${escapeHtml(one.file)}">Restore</button></div></div>`,
     )
     .join('');
@@ -494,7 +550,9 @@ export function scraperHistory(
     .join('')}</table>`;
 }
 
-export function keysList(keys: Array<{ id: string; label: string; hint: string; createdAt: string; lastUsedAt?: string }>): string {
+export function keysList(
+  keys: Array<{ id: string; label: string; hint: string; createdAt: string; lastUsedAt?: string; project?: string }>,
+): string {
   if (!keys.length) return '<div class="meta muted">no keys yet — a schedule cannot reach this account</div>';
 
   return keys
@@ -506,8 +564,16 @@ export function keysList(keys: Array<{ id: string; label: string; hint: string; 
           <div class="meta">made ${escapeHtml(new Date(key.createdAt).toLocaleString())}${
             key.lastUsedAt ? ` · last used ${escapeHtml(new Date(key.lastUsedAt).toLocaleString())}` : ' · never used'
           }</div>
+          <div class="meta">${
+            key.project ? `sees only <b>${escapeHtml(key.project)}</b>` : 'sees every project of this account'
+          }</div>
         </div>
-        <div class="row"><button data-key-revoke="${escapeHtml(key.id)}">Revoke</button></div>
+        <div class="row">
+          <input type="text" class="narrow" list="projectNames" placeholder="whole account"
+                 value="${escapeHtml(key.project ?? '')}" data-key-project-for="${escapeHtml(key.id)}">
+          <button data-key-project="${escapeHtml(key.id)}" title="the key stays the same; from its next request it sees only this project">Bind</button>
+          <button data-key-revoke="${escapeHtml(key.id)}">Revoke</button>
+        </div>
       </div>`,
     )
     .join('');

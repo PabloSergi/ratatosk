@@ -4,7 +4,8 @@ import { openBrowser } from './drivers/patchright.js';
 import type { PageDriver } from './driver.js';
 import { memoryFileFor, readMemory, writeMemory } from './memory.js';
 import { repairScenario } from './repair.js';
-import { isBrowserRobot, parseRobot, type Robot } from './robots.js';
+import { isBrowserRobot, listRobots, parseRobot, type Robot } from './robots.js';
+import { projectsOf } from './projects.js';
 import { runRobot } from './run-robot.js';
 import { loadRules, type SiteRule } from './rules.js';
 import { resolveScope } from './scope.js';
@@ -19,12 +20,17 @@ import { isTelegramRobot, sessionForRobot } from './telegram.js';
  *
  * The browser is opened only if the scraper turns out to need one: starting Chromium to read a channel
  * is a gigabyte of nothing.
+ *
+ * `node dist/cli.js robots [--project vietrent] [--json]` lists what there is, project by project.
  */
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
+  if (args[0] === 'robots') return listing(args);
+
   const path = args.find((arg) => !arg.startsWith('--'));
   if (!path) {
     console.error('usage: ratatosk <scraper.json> [--headed] [--json] [--repair]');
+    console.error('       ratatosk robots [--project NAME] [--json]');
     return 2;
   }
 
@@ -87,6 +93,31 @@ async function main(): Promise<number> {
   } finally {
     await opened?.close();
   }
+}
+
+/**
+ * The scrapers of this account, a project at a time — or of one project, which is what a person adding
+ * a city to one product wants to see without scrolling past the other hundred and seventy.
+ */
+async function listing(args: string[]): Promise<number> {
+  const flag = args.indexOf('--project');
+  const scope = await resolveScope(
+    process.env['RATATOSK_TOKEN'],
+    (flag >= 0 ? args[flag + 1] : undefined) ?? process.env['RATATOSK_PROJECT'],
+  );
+  const robots = await listRobots(scope.robotsDir, scope.project);
+
+  if (args.includes('--json')) {
+    console.log(JSON.stringify(robots, null, 2));
+    return 0;
+  }
+  for (const { project, count } of projectsOf(robots)) {
+    console.log(`${project || '(no project — give it one)'}: ${count}`);
+    for (const robot of robots.filter((one) => (one.project ?? '') === project)) {
+      console.log(`  ${robot.name}  ${robot.kind}  ${robot.url}`);
+    }
+  }
+  return 0;
 }
 
 /**

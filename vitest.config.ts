@@ -24,7 +24,7 @@ export default defineConfig({
       // A ratchet, not a target: set at what the suite covers today, so a change that covers less
       // fails CI. It moves up when tests are added and never down to make a build pass. What sits
       // outside it is browser-driven — the e2e suite is where that gets exercised.
-      thresholds: { lines: 35, functions: 32, branches: 29, statements: 34 },
+      thresholds: { lines: 44, functions: 39, branches: 40, statements: 43 },
     },
   },
 });
