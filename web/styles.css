@@ -157,12 +157,13 @@ h1 {
 }
 
 /* The squirrel that runs up and down the world tree carrying messages: the rune ᚱ standing in for the
-   R of its name. Sized to the capital height and set on the baseline, so the word reads as one word. */
+   R of its name. Set on the baseline so the word reads as one word, and a little taller and wider than
+   the capitals beside it, so the one letter that is drawn rather than typed is the one the eye finds. */
 .name { white-space: nowrap; }
 
 .mark {
-  width: 0.58em;
-  height: 0.72em;
+  width: 0.76em;
+  height: 0.9em;
   margin-right: 0.02em;
   overflow: visible;
   vertical-align: 0;
