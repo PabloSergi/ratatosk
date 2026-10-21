@@ -1017,6 +1017,7 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
       why: String(body['why'] ?? 'a door meant for a person'),
       ...(body['want'] ? { want: String(body['want']) } : {}),
       ...(body['proxy'] ? { proxy: String(body['proxy']) } : {}),
+      ...(body['project'] ? { project: String(body['project']) } : {}),
     }),
   }),
 

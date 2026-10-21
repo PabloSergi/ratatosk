@@ -381,15 +381,20 @@ export function scraperCard(
  * lands in the profile the scraper will actually read from.
  */
 export function waitingList(
-  waiting: Array<{ name: string; url: string; why: string; proxy?: string; at: string }>,
+  waiting: Array<{ name: string; url: string; why: string; proxy?: string; project?: string; at: string }>,
+  project = 'all',
 ): string {
-  if (!waiting.length) return '';
+  // Narrowed to a product, this list narrows with everything else: a door from one product is not a
+  // thing to do on another product's page.
+  const shown = project === 'all' ? waiting : waiting.filter((one) => (one.project ?? '') === project);
+  if (!shown.length) return '';
 
-  const rows = waiting
+  const rows = shown
     .map(
       (one) =>
         `<div class="item"><div class="item-main"><b>${escapeHtml(one.name)}</b> ` +
         `<span class="kind">door</span>` +
+        (project === 'all' && one.project ? `<span class="kind">${escapeHtml(one.project)}</span>` : '') +
         `<div class="meta">${escapeHtml(one.url)}</div>` +
         `<div class="meta broken">${escapeHtml(one.why)}</div></div>` +
         `<div class="row">` +
@@ -401,7 +406,7 @@ export function waitingList(
     .join('');
 
   return (
-    `<h2 class="spaced">Waiting for you (${waiting.length})</h2>` +
+    `<h2 class="spaced">Waiting for you (${shown.length})</h2>` +
     `<p class="meta">A check that asks whether you are a person. Open it, pass it once, and finish with
      <b>Save and close</b> — the pass stays in the profile and the scraper can be built.</p>` +
     `<div id="doorNote" hidden class="spaced"></div>${rows}`

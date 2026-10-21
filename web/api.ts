@@ -98,6 +98,7 @@ export interface WaitingSource {
   want?: string;
   why: string;
   proxy?: string;
+  project?: string;
   at: string;
 }
 

@@ -18,6 +18,14 @@ import { dirname, join } from 'node:path';
 export interface Waiting {
   name: string;
   url: string;
+  /**
+   * Whose project it belongs to.
+   *
+   * A parked source is a scraper that has not been built yet, and the page narrows everything else by
+   * project. Without this the one list that cannot be narrowed is the list of sources somebody has to
+   * act on — seven doors from one product hanging over every other product's page.
+   */
+  project?: string;
   /** What was asked for, so the build can be repeated without typing it again. */
   want?: string;
   /** Which door it was: the page title, or whatever the attempt could say about it. */

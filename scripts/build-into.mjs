@@ -5,7 +5,7 @@
  * thing without the browser in front of it — the maintenance path, for filling an account with robots
  * for sources it already had, or retrying the ones that did not come out the first time.
  *
- *   node scripts/build-into.mjs <userId> <url> <name> "<what is wanted>" [--proxy <id>] [--model <model>]
+ *   node scripts/build-into.mjs <userId> <url> <name> "<what is wanted>" [--proxy <id>] [--model <model>] [--project <name>]
  *
  * Nothing is passed in by hand: the key, the model and the proxy are the ones that account chose.
  */
@@ -26,8 +26,14 @@ const proxyId = proxyIndex >= 0 ? args[proxyIndex + 1] : undefined;
 // heavier act than saying so here.
 const modelIndex = args.indexOf('--model');
 const model = modelIndex >= 0 ? args[modelIndex + 1] : undefined;
+// Which product the source belongs to. The web view asks for it; built from here it was left empty,
+// and a scraper with no project sits outside every project's page until somebody edits the file.
+const projectIndex = args.indexOf('--project');
+const project = projectIndex >= 0 ? args[projectIndex + 1] : undefined;
 // A missing --proxy is index -1, and -1 + 1 is 0 — which would quietly eat the first argument.
-const flagged = new Set([proxyIndex, proxyIndex + 1, modelIndex, modelIndex + 1].filter((index) => index >= 1));
+const flagged = new Set(
+  [proxyIndex, proxyIndex + 1, modelIndex, modelIndex + 1, projectIndex, projectIndex + 1].filter((index) => index >= 1),
+);
 const rest = args.filter((_, index) => !flagged.has(index));
 const [userId, url, name, want] = rest;
 
@@ -79,7 +85,11 @@ try {
   for (const step of result.steps.slice(-4)) console.log(`  ${step.tool.padEnd(15)} ${String(step.result).slice(0, 110)}`);
 
   if (result.scenario && result.verdict?.good) {
-    const scenario = proxy ? { ...result.scenario, proxy: proxy.id } : result.scenario;
+    const scenario = {
+      ...result.scenario,
+      ...(proxy ? { proxy: proxy.id } : {}),
+      ...(project ? { project } : {}),
+    };
     const path = await saveRobot(scenario, join('robots', 'u', userId));
     console.log(`saved ${path}`);
   } else {
@@ -101,6 +111,7 @@ try {
         why: String(door.result).split('—').slice(-1)[0]?.trim().slice(0, 140) || 'a door meant for a person',
         ...(want ? { want } : {}),
         ...(proxy ? { proxy: proxy.id } : {}),
+        ...(project ? { project } : {}),
       });
       console.log(`parked: ${name} is waiting for a person to pass the check`);
     }

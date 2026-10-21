@@ -359,6 +359,30 @@ test('источник за дверью показывается с кнопк�
   assert.ok(html.includes('Waiting for you (1)'));
 });
 
+/**
+ * Страница сужена до продукта — значит сужено ВСЁ, включая список дверей. Семь дверей adult-job,
+ * висящих над страницей vietrent, это ровно то, на что Павел и показал: «зачем парсеры висят не в
+ * своих проектах».
+ */
+test('двери показываются только в своём проекте, а в общем списке — с меткой', () => {
+  const doors = [
+    { name: 'liveshow-jobs', url: 'https://forum2.live-show.com/f/15/', why: 'CHALLENGE PAGE', project: 'adult-job', at: '2026-10-08T18:00:00Z' },
+    { name: 'bds-tower', url: 'https://batdongsan.com.vn/x', why: 'CHALLENGE PAGE', project: 'vietrent', at: '2026-10-08T18:00:00Z' },
+  ];
+
+  const only = waitingList(doors, 'vietrent');
+  assert.ok(only.includes('bds-tower'));
+  assert.ok(!only.includes('liveshow-jobs'), 'чужая дверь не висит над этим продуктом');
+  assert.ok(only.includes('Waiting for you (1)'), 'и счётчик считает показанные, а не все');
+
+  const all = waitingList(doors, 'all');
+  assert.ok(all.includes('Waiting for you (2)'));
+  assert.match(all, /liveshow-jobs<\/b> <span class="kind">door<\/span><span class="kind">adult-job<\/span>/);
+
+  assert.equal(waitingList([{ name: 'x', url: 'https://x', why: 'door', at: '2026-10-08T18:00:00Z' }], 'vietrent'), '',
+    'источник без проекта не приписывается к чужому');
+});
+
 test('projects are tabs that say how many scrapers each has and how many need looking at', () => {
   const html = projectTabs(
     [

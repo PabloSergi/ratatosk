@@ -337,7 +337,7 @@ async function loadScrapers(): Promise<void> {
     // A source that stopped at a check for humans is not a robot and not a failure — it is a minute of
     // somebody's time. Shown here because the alternative was a sentence in a chat window.
     const { waiting } = await api.waiting().catch(() => ({ waiting: [] }));
-    el('waiting').innerHTML = waitingList(waiting);
+    el('waiting').innerHTML = waitingList(waiting, shownProject);
 
     // Deleting moves a scraper aside rather than destroying it, and that is worth nothing if the only
     // way to the corner it went into is a shell on the server.
