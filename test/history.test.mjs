@@ -193,3 +193,21 @@ test('у каждого робота своя история, а не доля �
   const { length: afterTrim } = await recent(file, { robot: 'болтливый', limit: 5000 });
   assert.ok(afterTrim > 60, 'между подрезками он, конечно, копит');
 });
+
+/**
+ * Журнал подрезается, а сложенные результаты — нет: про источник, который отдал вчера, журнал может
+ * уже не помнить ничего. Тогда ответ знает тот, кто хранит дольше.
+ */
+test('о последней отдаче можно сказать снаружи, если журнал её не застал', async () => {
+  const file = join(await mkdtemp(join(tmpdir(), 'ratatosk-outside-')), 'history.jsonl');
+  const at = new Date(Date.now() - 3600000).toISOString();
+  await remember(file, { at, robot: 'ats-exogroup', kind: 'run', status: 'empty', rows: 0, pages: 1, ms: 9, why: 'лента ответила, а в ней пусто' });
+
+  const alone = (await standing(file)).find((one) => one.robot === 'ats-exogroup');
+  assert.equal(alone.status, 'empty', 'сам по себе журнал видит только сегодняшнюю пустоту');
+
+  const told = new Map([['ats-exogroup', new Date(Date.now() - 26 * 3600000).toISOString()]]);
+  const withMemory = (await standing(file, told)).find((one) => one.robot === 'ats-exogroup');
+  assert.equal(withMemory.status, 'ok', 'а вчерашняя отдача делает её обычной тишиной');
+  assert.equal(withMemory.quiet, true);
+});

@@ -144,7 +144,12 @@ export interface Standing {
   quiet?: boolean;
 }
 
-export async function standing(file: string): Promise<Standing[]> {
+/**
+ * @param gaveAt When each robot last handed something over, for whoever knows it better than this
+ * file does — the kept results outlive the journal, and a source that delivered yesterday must not
+ * read as silent just because the journal no longer goes back that far.
+ */
+export async function standing(file: string, gaveAt?: ReadonlyMap<string, string>): Promise<Standing[]> {
   const runs = await recent(file, { limit: KEEP });
   const byRobot = new Map<string, { now: Standing; streak: boolean }>();
   /** When each robot last handed something over — the measure of whether its silence means anything. */
@@ -186,7 +191,7 @@ export async function standing(file: string): Promise<Standing[]> {
   // A source that found nothing for us is only worth a person's attention once it has been finding
   // nothing for days. Until then it reads as what it is: working, with nothing to say.
   for (const entry of byRobot.values()) {
-    const gave = lastGave.get(entry.now.robot);
+    const gave = lastGave.get(entry.now.robot) ?? gaveAt?.get(entry.now.robot);
     if (entry.now.status !== 'empty' || !gave) continue;
     if (Date.parse(entry.now.at) - Date.parse(gave) < SILENCE_MS) {
       entry.now.status = 'ok';

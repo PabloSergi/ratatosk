@@ -105,6 +105,23 @@ export async function keptRuns(
 }
 
 /** One kept run, rows and all. */
+/**
+ * When each scraper last handed something over.
+ *
+ * The journal is trimmed and the kept results are not, so this is the longer memory of the two — and
+ * the one question it answers, "has this source gone silent or is it merely quiet today", is the
+ * difference between a page of warnings and a page a person reads.
+ */
+export async function gaveAt(userId: string): Promise<Map<string, string>> {
+  if (!usingDatabase()) return new Map();
+  const pool = await db();
+  const { rows } = await pool.query<{ scraper: string; at: Date }>(
+    'SELECT scraper, MAX(at) AS at FROM results WHERE user_id = $1 AND row_count > 0 GROUP BY scraper',
+    [userId],
+  );
+  return new Map(rows.map((one) => [one.scraper, one.at.toISOString()]));
+}
+
 export async function readResult(userId: string, robot: string, at: string): Promise<Kept | undefined> {
   if (usingDatabase()) {
     const pool = await db();

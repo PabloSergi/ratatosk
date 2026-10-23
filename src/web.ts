@@ -57,7 +57,7 @@ import { liveLog, liveStream, nextFrame, viewerPage } from './live-view.js';
 import { Forbidden, InputError } from './errors.js';
 import { failure, info, log, warn } from './log.js';
 import { alertsFileFor, DEFAULT_AFTER, readAlerts, tell, viewAlerts, whatToSay, writeAlerts } from './alerts.js';
-import { forgetResults, harvestSince, keepResult, keptRuns, moveResults, readResult } from './results.js';
+import { forgetResults, gaveAt, harvestSince, keepResult, keptRuns, moveResults, readResult } from './results.js';
 import { listWaiting, park, unpark, waitingFileFor } from './waiting.js';
 import { forgetSchedule, moveSchedule, schedulesFor, setSchedule } from './schedule.js';
 import { enqueue, usingQueue, waiting } from './queue.js';
@@ -250,7 +250,9 @@ const routes: Record<string, (body: Record<string, unknown>, user: Caller) => Pr
         ...(project ? { robots: alive } : {}),
         limit: Number(body['limit'] ?? 60) || 60,
       }),
-      standing: (await standing(file)).filter((entry) => alive.has(entry.robot)),
+      standing: (await standing(file, await gaveAt(user.id).catch(() => new Map()))).filter((entry) =>
+        alive.has(entry.robot),
+      ),
     };
   },
 
