@@ -60,7 +60,8 @@ jobs:
       # The e2e server drives a real browser through patchright, which brings its own Chromium.
       - run: npx patchright install --with-deps chromium
       - run: npm run build
-      - run: npm run e2e
+      # Some e2e tests open a headed browser; the runner has no screen, so give it a virtual one.
+      - run: xvfb-run --auto-servernum npm run e2e
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
