@@ -3,7 +3,7 @@ import { alertsFileFor, readAlerts, tell, whatToSay, writeAlerts } from './alert
 import { BrowserPool } from './browsers.js';
 import { openBrowser } from './drivers/patchright.js';
 import { historyFileFor, remember, standing } from './history.js';
-import { log } from './log.js';
+import { failure, log } from './log.js';
 import { memoryFileFor, readMemory, writeMemory, type Seen } from './memory.js';
 import { findProxy, proxiesFileFor, toRunningBrowser } from './proxies.js';
 import { robotsDirFor } from './auth.js';
@@ -63,9 +63,21 @@ export async function runForAccount(userId: string, name: string, options: RunOp
 
   // What this robot has already returned. Without it, a posting reposted every ten minutes is a new
   // row every ten minutes, and a week of that buries the eleven things that actually happened.
+  //
+  // Held, not written, until the rows it marks as handed over have actually been kept. The run decides
+  // what is new long before it ends — a feed walks into every new row after deciding — and a memory
+  // written at that moment survives a worker restarted mid-walk while the rows do not: the next run
+  // calls them all "seen before", and they are never handed to anybody. Three new boards lost their
+  // whole first pass that way, about three and a half thousand listings, on the day of a deploy.
   const memoryFile = memoryFileFor(userId, robot.name);
+  let remembered: Record<string, Seen> | undefined;
   const memory = (robot as { remember?: unknown }).remember
-    ? { seen: await readMemory(memoryFile), save: (next: Record<string, Seen>) => writeMemory(memoryFile, next) }
+    ? {
+        seen: await readMemory(memoryFile),
+        save: async (next: Record<string, Seen>) => {
+          remembered = next;
+        },
+      }
     : undefined;
 
   // What the source holds, as opposed to what this run hands over. A scraper that remembers returns
@@ -183,13 +195,23 @@ export async function runForAccount(userId: string, name: string, options: RunOp
 
   // Kept so that "I ran it yesterday" is answerable today. Only the rows: the verdict and the reason
   // are in the history already.
-  await keepResult(userId, robot.name, {
+  const kept = await keepResult(userId, robot.name, {
     at,
     status: run.status,
     rows: run.rows,
     pagesVisited: run.pagesVisited,
     ...(run.reason ? { reason: run.reason } : {}),
-  }).catch(() => undefined);
+  }).then(
+    () => true,
+    (error: unknown) => {
+      failure('rows not kept', error, { robot: robot.name, user: userId, rows: run.rows.length });
+      return false;
+    },
+  );
+
+  // Only now is it true that these rows were handed over. Rows that could not be kept stay new, and
+  // the next run offers them again — a repeat costs the far side nothing, a gap costs it the rows.
+  if (remembered && kept) await writeMemory(memoryFile, remembered);
 
   // A scraper that says when it breaks says it to whoever opens the screen; one on a schedule breaks
   // at four in the morning and is found on Friday. So a run is also where the owner gets told —
