@@ -146,3 +146,50 @@ test('an empty run that is not quiet is still a thing to look at', async () => {
   assert.equal(now.status, 'empty', 'nothing came from the source at all, which is different');
   assert.equal(now.quiet, undefined);
 });
+
+/**
+ * Две сотни источников опрашиваются круглосуточно, и у большинства в каждый отдельный час просто нет
+ * ничего нового. Если каждый такой прогон красить как «посмотри на меня», страница превращается в
+ * стену красного, и человек перестаёт различать цвет — именно это Павел и увидел.
+ */
+test('источник, который сегодня ничего не нашёл, не притворяется сломанным', async () => {
+  const file = join(await mkdtemp(join(tmpdir(), 'ratatosk-silence-')), 'history.jsonl');
+  const hours = (n) => new Date(Date.now() - n * 3600000).toISOString();
+
+  await remember(file, { at: hours(30), robot: 'tg-desk', kind: 'run', status: 'ok', rows: 4, pages: 1, ms: 10 });
+  await remember(file, { at: hours(2), robot: 'tg-desk', kind: 'run', status: 'empty', rows: 0, pages: 1, ms: 10, why: 'сито не взяло ничего' });
+
+  // Второй источник молчит неделю — вот это уже вопрос к правилу, а не к сегодняшнему дню.
+  await remember(file, { at: hours(24 * 9), robot: 'tg-dead', kind: 'run', status: 'ok', rows: 2, pages: 1, ms: 10 });
+  await remember(file, { at: hours(1), robot: 'tg-dead', kind: 'run', status: 'empty', rows: 0, pages: 1, ms: 10, why: 'сито не взяло ничего' });
+
+  const now = await standing(file);
+  const desk = now.find((one) => one.robot === 'tg-desk');
+  const dead = now.find((one) => one.robot === 'tg-dead');
+
+  assert.equal(desk.status, 'ok', 'вчера отдавал — значит сегодняшняя пустота это тишина, а не поломка');
+  assert.equal(desk.quiet, true, 'и карточка скажет «нового нет», а не «0 строк»');
+  assert.equal(dead.status, 'empty', 'а девять дней молчания — это к человеку');
+});
+
+/**
+ * Один файл на весь аккаунт: при двухстах роботах плоский потолок в две тысячи строк съедался за час,
+ * и робот, бегавший утром, пропадал из файла совсем — страница говорила «ни разу не запускался».
+ */
+test('у каждого робота своя история, а не доля общего потолка', async () => {
+  const file = join(await mkdtemp(join(tmpdir(), 'ratatosk-keep-')), 'history.jsonl');
+  const line = (robot, n) => ({ at: new Date(Date.now() - n * 60000).toISOString(), robot, kind: 'run', status: 'ok', rows: 1, pages: 1, ms: 5 });
+
+  await remember(file, line('тихий', 5000));
+  for (let n = 4000; n > 0; n--) await remember(file, line('болтливый', n));
+
+  const mine = await recent(file, { robot: 'тихий' });
+  assert.equal(mine.length, 1, 'редкий робот остаётся в файле, сколько бы ни бегал сосед');
+
+  // Подрезка срабатывает с запасом, поэтому меряем то, что она гарантирует: файл не растёт без
+  // предела, и место в нём делится по роботам, а не по частоте.
+  const all = (await readFile(file, 'utf8')).split('\n').filter(Boolean).length;
+  assert.ok(all < 4000, `файл остаётся обозримым: ${all}`);
+  const { length: afterTrim } = await recent(file, { robot: 'болтливый', limit: 5000 });
+  assert.ok(afterTrim > 60, 'между подрезками он, конечно, копит');
+});

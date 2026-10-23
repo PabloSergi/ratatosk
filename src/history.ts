@@ -33,6 +33,27 @@ export interface Run {
 /** How many lines a file keeps. Old enough to show a trend, small enough to read in one gulp. */
 const KEEP = Number(process.env['RATATOSK_HISTORY_KEEP'] ?? 2000);
 
+/**
+ * …and how many of them belong to one robot, which is the number that actually matters.
+ *
+ * One file holds every robot in the account, so a flat cap is shared out by how often each one runs:
+ * two hundred robots on ten-minute schedules fill two thousand lines in an hour, and "every run this
+ * scraper has had" becomes the last six. Worse, a robot that ran this morning drops out of the file
+ * entirely and the page says it has never run at all. So the cap is per robot — the file grows with
+ * the account instead of eating it.
+ */
+const KEEP_PER_ROBOT = Number(process.env['RATATOSK_HISTORY_PER_ROBOT'] ?? 60);
+
+/**
+ * How long a source may hand over nothing before that is worth a person's attention.
+ *
+ * A run that reached the source and found nothing for us is not a failure: a channel posts four
+ * messages and none is a vacancy, a board has the same twenty topics it had an hour ago. Counting
+ * each of those as "needs looking at" is how a page of two hundred healthy sources turns into a wall
+ * of red, and how a person learns to ignore the colour. Silence only means something when it lasts.
+ */
+const SILENCE_MS = Number(process.env['RATATOSK_SILENCE_DAYS'] ?? 3) * 24 * 60 * 60 * 1000;
+
 export function historyFileFor(userId: string): string {
   return join(process.env['RATATOSK_HISTORY'] ?? 'history', `${userId}.jsonl`);
 }
@@ -126,6 +147,8 @@ export interface Standing {
 export async function standing(file: string): Promise<Standing[]> {
   const runs = await recent(file, { limit: KEEP });
   const byRobot = new Map<string, { now: Standing; streak: boolean }>();
+  /** When each robot last handed something over — the measure of whether its silence means anything. */
+  const lastGave = new Map<string, string>();
 
   // Newest first: the first line for a robot is how it is now, and the ones after it extend the streak
   // until one of them disagrees. After that the older runs are history, not the present state.
@@ -137,6 +160,8 @@ export async function standing(file: string): Promise<Standing[]> {
     // every day, until nobody reads the warnings any more.
     const status = run.quiet ? 'ok' : run.status;
     const seen = byRobot.get(run.robot);
+    // Newest first, so the first run that handed something over is the last time it did.
+    if (run.rows > 0 && !lastGave.has(run.robot)) lastGave.set(run.robot, run.at);
     if (!seen) {
       byRobot.set(run.robot, {
         now: {
@@ -158,6 +183,17 @@ export async function standing(file: string): Promise<Standing[]> {
     else seen.streak = false;
   }
 
+  // A source that found nothing for us is only worth a person's attention once it has been finding
+  // nothing for days. Until then it reads as what it is: working, with nothing to say.
+  for (const entry of byRobot.values()) {
+    const gave = lastGave.get(entry.now.robot);
+    if (entry.now.status !== 'empty' || !gave) continue;
+    if (Date.parse(entry.now.at) - Date.parse(gave) < SILENCE_MS) {
+      entry.now.status = 'ok';
+      entry.now.quiet = true;
+    }
+  }
+
   return [...byRobot.values()].map((entry) => entry.now).sort((left, right) => right.at.localeCompare(left.at));
 }
 
@@ -176,7 +212,22 @@ function parse(line: string): Run | undefined {
 async function trim(file: string): Promise<void> {
   const lines = (await readFile(file, 'utf8').catch(() => '')).split('\n').filter(Boolean);
   if (lines.length <= KEEP * 1.5) return;
+
+  // Each robot keeps its own last runs, so a busy one cannot push a quiet one out of the file.
+  const perRobot = new Map<string, number>();
+  const keep = new Set<number>();
+  for (let index = lines.length - 1; index >= 0; index--) {
+    const run = parse(lines[index]!);
+    const robot = run?.robot ?? '';
+    const had = perRobot.get(robot) ?? 0;
+    if (had >= KEEP_PER_ROBOT) continue;
+    perRobot.set(robot, had + 1);
+    keep.add(index);
+  }
+
+  const next = lines.filter((_, index) => keep.has(index));
+  if (next.length === lines.length) return;
   const temporary = `${file}.trimming`;
-  await writeFile(temporary, `${lines.slice(-KEEP).join('\n')}\n`, 'utf8');
+  await writeFile(temporary, `${next.join('\n')}\n`, 'utf8');
   await rename(temporary, file);
 }
