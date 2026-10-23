@@ -159,8 +159,8 @@ test('источник, который сегодня ничего не нашё
   await remember(file, { at: hours(30), robot: 'tg-desk', kind: 'run', status: 'ok', rows: 4, pages: 1, ms: 10 });
   await remember(file, { at: hours(2), robot: 'tg-desk', kind: 'run', status: 'empty', rows: 0, pages: 1, ms: 10, why: 'сито не взяло ничего' });
 
-  // Второй источник молчит неделю — вот это уже вопрос к правилу, а не к сегодняшнему дню.
-  await remember(file, { at: hours(24 * 9), robot: 'tg-dead', kind: 'run', status: 'ok', rows: 2, pages: 1, ms: 10 });
+  // Второй молчит три недели — вот это уже вопрос к правилу, а не к сегодняшнему дню.
+  await remember(file, { at: hours(24 * 21), robot: 'tg-dead', kind: 'run', status: 'ok', rows: 2, pages: 1, ms: 10 });
   await remember(file, { at: hours(1), robot: 'tg-dead', kind: 'run', status: 'empty', rows: 0, pages: 1, ms: 10, why: 'сито не взяло ничего' });
 
   const now = await standing(file);
@@ -169,7 +169,7 @@ test('источник, который сегодня ничего не нашё
 
   assert.equal(desk.status, 'ok', 'вчера отдавал — значит сегодняшняя пустота это тишина, а не поломка');
   assert.equal(desk.quiet, true, 'и карточка скажет «нового нет», а не «0 строк»');
-  assert.equal(dead.status, 'empty', 'а девять дней молчания — это к человеку');
+  assert.equal(dead.status, 'empty', 'а три недели молчания — это к человеку');
 });
 
 /**

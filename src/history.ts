@@ -51,8 +51,12 @@ const KEEP_PER_ROBOT = Number(process.env['RATATOSK_HISTORY_PER_ROBOT'] ?? 60);
  * messages and none is a vacancy, a board has the same twenty topics it had an hour ago. Counting
  * each of those as "needs looking at" is how a page of two hundred healthy sources turns into a wall
  * of red, and how a person learns to ignore the colour. Silence only means something when it lasts.
+ *
+ * Two weeks, because that is what the sources measure: across ten Telegram channels watched for this,
+ * a vacancy appears every few weeks and the chatter in between is not one. Three days called every
+ * one of them broken.
  */
-const SILENCE_MS = Number(process.env['RATATOSK_SILENCE_DAYS'] ?? 3) * 24 * 60 * 60 * 1000;
+const SILENCE_MS = Number(process.env['RATATOSK_SILENCE_DAYS'] ?? 14) * 24 * 60 * 60 * 1000;
 
 export function historyFileFor(userId: string): string {
   return join(process.env['RATATOSK_HISTORY'] ?? 'history', `${userId}.jsonl`);
