@@ -22,7 +22,7 @@ export interface Scenario {
   /** Which rows count, and what to read out of their text. See sift.ts. */
   sift?: SiftRule;
   /** Whether to hand back only what has not been seen before. See memory.ts. */
-  remember?: { by?: string; days?: number; mode?: 'new' | 'all' };
+  remember?: { by?: string; days?: number; mode?: 'new' | 'all'; watch?: string[] };
   /**
    * Whether rows collected twice in the same walk are handed over once. On unless it is turned off:
    * a pager that shifts under you returns the same posting on two pages, and nobody wants it twice.

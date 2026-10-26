@@ -2,7 +2,7 @@ import type { PageDriver } from './driver.js';
 import type { Robot } from './robots.js';
 import type { SiteRule } from './rules.js';
 import { runScenario, type RunResult } from './run.js';
-import { identity, identityOfMessage, meet, type Remember, type Row, type Seen } from './memory.js';
+import { hasChanged, identity, identityOfMessage, meet, type Remember, type Row, type Seen } from './memory.js';
 import { fieldsOf, judgeSift, refused, sift, type Sift } from './sift.js';
 import { isTelegramRobot, runTelegramRobot } from './telegram.js';
 import { asker, deepen, isApiRobot, runApiRobot, type AskJson } from './api.js';
@@ -47,8 +47,11 @@ export async function runRobot(
      * That is what a catalogue is made of, and it cannot be reconstructed from what was handed on.
      */
     saw?: (rows: Array<Record<string, string | null>>) => Promise<void>;
-    /** What this robot has seen before, and somewhere to put what it sees now. */
-    memory?: { seen: Record<string, Seen>; save: (memory: Record<string, Seen>) => Promise<void> };
+    /**
+     * What this robot has seen before, and somewhere to put what it sees now. `goneSince` is where its
+     * last finished pass began, for a robot that says what has left its source: see `meet`.
+     */
+    memory?: { seen: Record<string, Seen>; save: (memory: Record<string, Seen>) => Promise<void>; goneSince?: string };
   },
 ): Promise<RunResult> {
   if (isTelegramRobot(robot)) {
@@ -176,7 +179,10 @@ export async function runRobot(
           if (!byMemory) return true;
           const whole = robot.sift ? { ...row, ...fieldsOf(row, robot.sift) } : row;
           const key = identity(whole, robot.remember?.by);
-          return !key || !known![key];
+          const seen = key ? known![key] : undefined;
+          if (!seen) return true;
+          const gone = options.memory?.goneSince;
+          return hasChanged(seen, whole, robot.remember?.watch) || (gone !== undefined && seen.lastSeen < gone);
         }
       : undefined;
 
@@ -231,7 +237,7 @@ export async function runRobot(
 async function remember(
   rows: Array<Record<string, string | null>>,
   rule: Remember | undefined,
-  memory: { seen: Record<string, Seen>; save: (memory: Record<string, Seen>) => Promise<void> } | undefined,
+  memory: { seen: Record<string, Seen>; save: (memory: Record<string, Seen>) => Promise<void>; goneSince?: string } | undefined,
   /** What identifies a row from this source. See `identityOfMessage` for why a channel differs. */
   identify?: (row: Row, by?: string) => string | undefined,
   /** Who this scraper hands over with, when it shares a pool of postings with others. */
@@ -239,12 +245,14 @@ async function remember(
 ): Promise<{ rows: Array<Record<string, string | null>>; note?: string }> {
   if (!rule || !memory) return { rows };
 
-  const sighting = meet(rows, memory.seen, rule, new Date(), identify);
+  const sighting = meet(rows, memory.seen, rule, new Date(), identify, memory.goneSince);
   await memory.save(sighting.memory);
 
   const note =
-    sighting.repeated.length > 0
-      ? `${sighting.repeated.length} of ${rows.length} had been seen before` +
+    sighting.repeated.length + sighting.changed.length + sighting.returned.length > 0
+      ? `${sighting.repeated.length + sighting.changed.length + sighting.returned.length} of ${rows.length} had been seen before` +
+        (sighting.changed.length ? `, ${sighting.changed.length} of them changed since` : '') +
+        (sighting.returned.length ? `, ${sighting.returned.length} back after a pass that missed them` : '') +
         (sighting.forgotten ? `; ${sighting.forgotten} old ones forgotten` : '')
       : undefined;
 
@@ -265,8 +273,15 @@ async function remember(
    * Asked after its own memory rather than instead of it, because the two answer different
    * questions — and asked only about rows that would otherwise go out, so a group's store grows with
    * what was handed over and not with everything anybody ever saw.
+   *
+   * A row that changed, or came back, was claimed when it first went out, so the group would refuse
+   * it now; but it is news to whoever reads us, and it passes.
    */
-  const keyed = sighting.fresh.map((row) => ({ row, key: (identify ?? identity)(row, rule.by) }));
+  const again = [...sighting.changed, ...sighting.returned];
+  const passing = new Set(again);
+  const keyed = sighting.fresh
+    .filter((row) => !passing.has(row))
+    .map((row) => ({ row, key: (identify ?? identity)(row, rule.by) }));
   const mine = await claim({
     userId: together.userId,
     group: together.group,
@@ -278,7 +293,7 @@ async function remember(
   const both = [note, taken ? `${taken} already handed over by ${together.group}` : undefined]
     .filter(Boolean)
     .join('; ');
-  return { rows: alone.map((one) => one.row), ...(both ? { note: both } : {}) };
+  return { rows: [...again, ...alone.map((one) => one.row)], ...(both ? { note: both } : {}) };
 }
 
 /**

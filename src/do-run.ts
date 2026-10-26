@@ -71,18 +71,22 @@ export async function runForAccount(userId: string, name: string, options: RunOp
   // whole first pass that way, about three and a half thousand listings, on the day of a deploy.
   const memoryFile = memoryFileFor(userId, robot.name);
   let remembered: Record<string, Seen> | undefined;
+  // What the source holds, as opposed to what this run hands over. A scraper that remembers returns
+  // increments, and increments cannot be added back up into a source — the oldest of them ages out.
+  const catalogued = (robot as { catalogue?: string }).catalogue;
+  // A scraper with a catalogue says what has left its source, so whatever its last finished pass
+  // missed has been reported gone; meeting it again is news. Read before this run, which moves it.
+  const goneSince = catalogued ? await lastPassOf(userId, robot.name) : undefined;
   const memory = (robot as { remember?: unknown }).remember
     ? {
         seen: await readMemory(memoryFile),
         save: async (next: Record<string, Seen>) => {
           remembered = next;
         },
+        ...(goneSince ? { goneSince } : {}),
       }
     : undefined;
 
-  // What the source holds, as opposed to what this run hands over. A scraper that remembers returns
-  // increments, and increments cannot be added back up into a source — the oldest of them ages out.
-  const catalogued = (robot as { catalogue?: string }).catalogue;
   const startedAt = new Date().toISOString();
   const saw = catalogued
     ? (rows: Array<Record<string, string | null>>) => keepSeen(userId, robot.name, rows, catalogued, startedAt).then(() => undefined)

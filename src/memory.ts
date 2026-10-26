@@ -37,6 +37,20 @@ export interface Remember {
    */
   again?: number;
   /**
+   * Hand a known row over again when one of these columns has changed.
+   *
+   * The identity says which posting this is; it says nothing about what the posting says now. A flat
+   * keeps its id while the owner drops the price, corrects three bedrooms to two and photographs it
+   * again — and a memory that only asks "have I seen this id" hands over the first version and then
+   * stays quiet for as long as the advert is up, so whatever we feed goes on showing the old price for
+   * months. Naming the columns that matter makes a change news, and only a change: a column that moves
+   * on its own (a bump time, a view count) does not belong here, or every run would be news.
+   *
+   * On a walk into rows, name columns the list itself carries: whether a row is worth opening again is
+   * decided before it is opened.
+   */
+  watch?: string[];
+  /**
    * What a run returns. "new" is the point of remembering at all; "all" keeps every row and only
    * counts the repeats, for somebody who wants the whole picture every time.
    */
@@ -60,6 +74,8 @@ export interface Seen {
   /** When it was last handed over. Absent on rows remembered before this was kept: they were handed
    *  over when they were first seen, which is what firstSeen says. */
   handedAt?: string;
+  /** A fingerprint of the watched columns as they were last met. See `Remember.watch`. */
+  sum?: string;
 }
 
 export type Row = Record<string, string | null>;
@@ -220,9 +236,32 @@ export async function writeMemory(file: string, memory: Record<string, Seen>): P
   await rename(temporary, file);
 }
 
+/** The fingerprint of what a row says in the columns being watched, or nothing when none are. */
+export function sumOf(row: Row, watch: string[] | undefined): string | undefined {
+  if (!watch?.length) return undefined;
+  const said = watch.map((name) => row[name]?.trim() ?? null);
+  return createHash('sha256').update(JSON.stringify(said)).digest('hex').slice(0, 16);
+}
+
+/**
+ * Whether a remembered row says something different now.
+ *
+ * A row remembered before anything was watched has no fingerprint to compare with, and it is not
+ * called changed: turning `watch` on would otherwise hand a whole board over again in one run. Its
+ * fingerprint is taken this time, and the next change is news.
+ */
+export function hasChanged(seen: Seen, row: Row, watch: string[] | undefined): boolean {
+  const sum = sumOf(row, watch);
+  return sum !== undefined && seen.sum !== undefined && seen.sum !== sum;
+}
+
 export interface Sighting {
-  /** Rows that were not in the memory. What a run should hand on. */
+  /** Rows that were not in the memory, or say something new. What a run should hand on. */
   fresh: Row[];
+  /** Of those, the ones that were known and have changed. */
+  changed: Row[];
+  /** …and the ones that were known and had been missing: see `goneSince` on `meet`. */
+  returned: Row[];
   /** Rows that were, with how long ago each was first met. */
   repeated: Array<{ row: Row; firstSeen: string; times: number }>;
   memory: Record<string, Seen>;
@@ -242,9 +281,21 @@ export function meet(
   now = new Date(),
   /** What identifies a row here. A page walk is identified by its links; a channel, by what was said. */
   identify: (row: Row, by?: string) => string | undefined = identity,
+  /**
+   * Where the last finished pass began, for a scraper that says what has left its source.
+   *
+   * A row that pass did not meet has been reported gone, and whoever reads us has taken it down. If
+   * it turns up again, it is news: a posting the walk missed once — the board shifted under the pager —
+   * or one put back up. Without this it was "seen before" and never handed over again, and a catalogue
+   * of flats lost half of what was still up, a few hundred a day for three weeks.
+   */
+  goneSince?: string,
 ): Sighting {
   const stamp = now.toISOString();
+  const boundary = goneSince ? Date.parse(goneSince) : undefined;
   const fresh: Row[] = [];
+  const changed: Row[] = [];
+  const returned: Row[] = [];
   const repeated: Array<{ row: Row; firstSeen: string; times: number }> = [];
   const next: Record<string, Seen> = { ...memory };
 
@@ -255,25 +306,32 @@ export function meet(
       continue;
     }
 
+    const sum = sumOf(row, rule.watch);
     const known = next[key];
     if (known) {
       const handedAt = known.handedAt ?? known.firstSeen;
       const dueAgain =
         rule.again !== undefined &&
         now.getTime() - new Date(handedAt).getTime() >= rule.again * 24 * 60 * 60 * 1000;
+      const different = hasChanged(known, row, rule.watch);
+      const back = boundary !== undefined && Date.parse(known.lastSeen) < boundary;
+      const news = dueAgain || different || back;
 
       next[key] = {
         firstSeen: known.firstSeen,
         lastSeen: stamp,
         times: known.times + 1,
-        handedAt: dueAgain ? stamp : handedAt,
+        handedAt: news ? stamp : handedAt,
+        ...(sum ? { sum } : {}),
       };
-      if (dueAgain) fresh.push(row);
+      if (different) changed.push(row);
+      else if (back) returned.push(row);
+      if (news) fresh.push(row);
       else repeated.push({ row, firstSeen: known.firstSeen, times: known.times + 1 });
       continue;
     }
 
-    next[key] = { firstSeen: stamp, lastSeen: stamp, times: 1, handedAt: stamp };
+    next[key] = { firstSeen: stamp, lastSeen: stamp, times: 1, handedAt: stamp, ...(sum ? { sum } : {}) };
     fresh.push(row);
   }
 
@@ -288,5 +346,5 @@ export function meet(
     }
   }
 
-  return { fresh, repeated, memory: next, forgotten };
+  return { fresh, changed, returned, repeated, memory: next, forgotten };
 }
