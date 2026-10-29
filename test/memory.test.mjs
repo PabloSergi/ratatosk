@@ -286,3 +286,67 @@ test('внутри прохода опознаватель строки берё
     'а по названию роли — две разные, и обе должны дойти',
   );
 });
+
+/**
+ * Квартира на Chợ Tốt держит свой id, пока хозяин правит цену, спальни и фото. Память, которая
+ * спрашивает только «видел ли я этот id», отдала первую версию и молчала дальше: у нас висело
+ * «3 спальни», когда у источника давно стояло «2 phòng ngủ».
+ */
+test('объявление, у которого сменилось то, за чем следят, отдаётся снова, а не замолкает', () => {
+  const rule = { by: 'id', mode: 'new', watch: ['price', 'rooms'] };
+  const flat = (price, rooms, bumped) => ({ id: '128', price, rooms, bumped_at: bumped });
+
+  const first = meet([flat('14000000', '3', '1')], {}, rule, new Date('2026-10-20T06:00:00Z'));
+  assert.equal(first.fresh.length, 1);
+
+  const bumped = meet([flat('14000000', '3', '2')], first.memory, rule, new Date('2026-10-20T07:00:00Z'));
+  assert.equal(bumped.fresh.length, 0, 'поднятое объявление с той же ценой — не новость');
+
+  const edited = meet([flat('14000000', '2', '3')], bumped.memory, rule, new Date('2026-10-21T07:00:00Z'));
+  assert.equal(edited.fresh.length, 1, 'спальни исправили — отдаётся заново');
+  assert.deepEqual(edited.changed, edited.fresh);
+  assert.equal(edited.memory['k:128'].handedAt, '2026-10-21T07:00:00.000Z');
+  assert.equal(edited.memory['k:128'].firstSeen, '2026-10-20T06:00:00.000Z', 'впервые увидено всё тогда же');
+
+  const again = meet([flat('14000000', '2', '4')], edited.memory, rule, new Date('2026-10-21T08:00:00Z'));
+  assert.equal(again.fresh.length, 0, 'и один раз: следующий проход с тем же текстом молчит');
+});
+
+test('включённое наблюдение не вываливает заново всю доску', () => {
+  const flat = { id: '128', price: '14000000', rooms: '3' };
+  const old = meet([flat], {}, { by: 'id' }, new Date('2026-10-01T06:00:00Z'));
+  assert.equal(old.memory['k:128'].sum, undefined, 'без watch отпечатка нет');
+
+  const rule = { by: 'id', watch: ['price', 'rooms'] };
+  const first = meet([{ ...flat, rooms: '2' }], old.memory, rule, new Date('2026-10-26T06:00:00Z'));
+  assert.equal(first.fresh.length, 0, 'сравнивать не с чем — не новость, а отпечаток снят');
+  assert.ok(first.memory['k:128'].sum);
+
+  const next = meet([{ ...flat, rooms: '1' }], first.memory, rule, new Date('2026-10-26T07:00:00Z'));
+  assert.equal(next.fresh.length, 1, 'а следующая правка — уже новость');
+});
+
+/**
+ * Проход по ленте пропустил объявление — лента сдвинулась под пагинацией, — и /api/vanished сказал
+ * «снято». Читатель его снял. Следующий проход объявление встретил, но память говорила «видел», и оно
+ * больше не отдавалось: так у VietRent за три недели ушло в архив 14 тысяч живых квартир.
+ */
+test('встреченное снова после прохода, который его не видел, отдаётся заново', () => {
+  const rule = { by: 'id', mode: 'new' };
+  const flat = { id: '128', price: '14000000' };
+  const first = meet([flat], {}, rule, new Date('2026-10-20T06:00:00Z'));
+
+  // Полный проход начался в 08:00 и этой квартиры не встретил.
+  const missed = '2026-10-20T08:00:00.000Z';
+  const back = meet([flat], first.memory, rule, new Date('2026-10-20T10:00:00Z'), undefined, missed);
+  assert.equal(back.fresh.length, 1, 'её успели снять — значит, это новость');
+  assert.deepEqual(back.returned, back.fresh);
+
+  const after = meet([flat], back.memory, rule, new Date('2026-10-20T11:00:00Z'), undefined, missed);
+  assert.equal(after.fresh.length, 0, 'а дальше снова тишина');
+
+  const seenInPass = meet([flat], first.memory, rule, new Date('2026-10-20T07:00:00Z'), undefined, '2026-10-20T06:30:00.000Z');
+  assert.equal(seenInPass.fresh.length, 1, 'граница считается по lastSeen, а не по firstSeen');
+  const quiet = meet([flat], seenInPass.memory, rule, new Date('2026-10-20T09:00:00Z'), undefined, '2026-10-20T06:30:00.000Z');
+  assert.equal(quiet.fresh.length, 0, 'встреченная после начала прохода — не пропадала');
+});

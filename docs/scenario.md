@@ -149,6 +149,8 @@ is new.
   two months and came back is news again.
 - `again` — hand the same thing over again after this many days, **even though it never went away**.
   Off unless you ask for it.
+- `watch` — columns whose change makes a known row news again: `["price", "rooms"]`. Off unless you
+  ask for it.
 - `by` — which column identifies a row. Leave it out and the scraper decides, which is almost always
   what you want.
 
@@ -168,6 +170,23 @@ other clock: not *when did we last see it* but *when did we last pass it on*.
 
 What is handed over is the sighting that happened now — today's message, with today's link — not a
 copy of the one from a week ago.
+
+### Handing over what changed
+
+The identity says which posting a row is, not what it says now. A flat keeps its id while the owner
+drops the price, corrects three bedrooms to two and photographs it again; a memory that only asks
+*have I seen this id* hands over the first version and then stays quiet for as long as the advert is
+up. `watch` names the columns that matter, and a known row whose watched columns read differently is
+handed over again — once, with everything else it says now:
+
+```json
+{ "remember": { "by": "id", "mode": "new", "watch": ["price", "rooms", "title", "photos"] } }
+```
+
+Leave out anything that moves on its own — a bump time, a view count — or every run is news. On a walk
+into rows, watch columns the list carries: a changed row is opened again, and whether it changed is
+known before it is opened. Rows remembered before `watch` was turned on have nothing to compare with,
+so turning it on does not hand a whole board over again; their next change does.
 
 ### What identifies a row
 
@@ -276,6 +295,12 @@ page. `/api/vanished` is what the last **completed** pass did not see: let, take
 guess from the absence of rows in a run, which is what an increment always looks like — and not a
 guess from a walk that was interrupted, which would name every page it never reached. A scraper whose
 walks keep being cut short has no boundary at all, and says so rather than inventing one.
+
+What `/api/vanished` named, the far side has taken down. So a scraper that remembers and keeps a
+catalogue hands a row over again when it turns up after a completed pass that missed it — a board that
+shifted under the pager, an advert put back up. Otherwise the memory calls it seen before, the far side
+never hears of it again, and a live posting stays archived for good: a few hundred flats a day, for
+three weeks, before this was noticed.
 
 Leave it out where rows have no lasting identity — a source whose rows are known only by a fingerprint
 of their own text cannot be catalogued, and a catalogue of those would be new every time it is read.

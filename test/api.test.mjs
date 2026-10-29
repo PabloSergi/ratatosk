@@ -271,3 +271,47 @@ test('источник, который отвечает просто масси�
   assert.equal(run.rows[0].title, 'Chatter');
   assert.equal(run.rows[1].link, 'https://jobs.test/two');
 });
+
+/**
+ * Весь путь, как у роботов nhatot: лента, память по id, второй запрос за подробностями. Правка у
+ * источника должна дойти до того, кто нас читает, — вместе с подробностями, взятыми заново.
+ */
+test('правка у источника доходит, и за подробностями ходят снова — только по правленому', async () => {
+  const { runRobot } = await import('../src/run-robot.ts');
+
+  let ads = [{ list_id: 1, price: 14_000_000, rooms: 3 }, { list_id: 2, price: 9_000_000, rooms: 1 }];
+  const deeper = [];
+  const askJson = async (href) => {
+    if (href.includes('/ads/')) {
+      deeper.push(href.split('/').pop());
+      return { ad: { toilets: 2 } };
+    }
+    return { total: ads.length, ads };
+  };
+  const robot = {
+    name: 'flats', version: 1, source: 'api',
+    url: 'https://example.test/ads', rowsAt: 'ads', totalAt: 'total',
+    page: { param: 'o', sizeParam: 'limit', size: 50 },
+    identity: 'list_id',
+    fields: { id: 'list_id', price: 'price', rooms: 'rooms' },
+    detail: { url: 'https://example.test/ads/{id}', fields: { toilets: 'ad.toilets' } },
+    remember: { by: 'id', mode: 'new', watch: ['price', 'rooms'] },
+  };
+  let seen = {};
+  const memory = () => ({ seen, save: async (next) => { seen = next; } });
+  const page = async () => { throw new Error('браузер тут не нужен'); };
+
+  const first = await runRobot(robot, { page, askJson, memory: memory() });
+  assert.equal(first.rows.length, 2);
+
+  const quiet = await runRobot(robot, { page, askJson, memory: memory() });
+  assert.equal(quiet.status, 'empty', 'ничего не менялось — тихий час');
+
+  ads = [{ list_id: 1, price: 14_000_000, rooms: 2 }, ads[1]];
+  deeper.length = 0;
+  const edited = await runRobot(robot, { page, askJson, memory: memory() });
+  assert.equal(edited.status, 'ok');
+  assert.deepEqual(edited.rows.map((row) => [row.id, row.rooms, row.toilets]), [['1', '2', '2']]);
+  assert.deepEqual(deeper, ['1'], 'подробности — только у правленого');
+  assert.match(edited.reason, /1 of them changed since/);
+});
