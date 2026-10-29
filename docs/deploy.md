@@ -173,6 +173,23 @@ docker compose up -d db queue web worker logs
 docker compose logs -f worker
 ```
 
+### When the worker itself stops
+
+"Up" is not the same as working. A run whose browser, database or Telegram connection stops answering
+does not fail — it waits, and a worker whose every hand is waiting writes nothing anywhere. So:
+
+- every run has a deadline (`RATATOSK_RUN_TIMEOUT_MS`, 30 minutes by default) and ends as `broken` in
+  its history when it passes it, with its browser or Telegram client closed under it. The owner is
+  told on the first such run, not the third;
+- a tick has one too, of five minutes;
+- a watchdog checks once a minute that the tick has worked and that no hand has been busy for longer
+  than a run may take. If something is stuck, the owner is told (at most once an hour) and the process
+  exits; `restart: unless-stopped` brings up a fresh one. Who is told: the account `RATATOSK_OWNER`
+  names, otherwise everyone with alerts set up — plus the owner of whatever run was stuck;
+- while all is well the watchdog touches `/tmp/ratatosk-worker.alive`, and the container's health check
+  goes `unhealthy` when that file is older than fifteen minutes. That is the case the process cannot
+  restart itself out of, and the check makes it visible in `docker compose ps`.
+
 ### Or from outside, if you would rather
 
 Nothing above replaces cron or n8n, and an installation without Postgres and Redis has neither the

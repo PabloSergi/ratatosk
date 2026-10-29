@@ -36,6 +36,8 @@ export async function runRobot(
     rules?: SiteRule[];
     maxPages?: number;
     telegramSession?: string;
+    /** Told when the run has been given up on, so whatever it holds open can be let go of. */
+    signal?: AbortSignal;
     /** How to put a question to a JSON feed. Injected so a test never reaches the network. */
     askJson?: AskJson;
     /** How a feed is fetched — named so a robot that needs a proxy can be given one. */
@@ -55,7 +57,7 @@ export async function runRobot(
   },
 ): Promise<RunResult> {
   if (isTelegramRobot(robot)) {
-    const { rows, reason } = await runTelegramRobot(robot, options.telegramSession);
+    const { rows, reason } = await runTelegramRobot(robot, options.telegramSession, undefined, options.signal);
     if (reason) return { status: 'broken', rows: [], pagesVisited: 0, reason };
 
     const sifted = applySift(rows, robot.sift);

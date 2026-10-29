@@ -254,8 +254,28 @@ export async function telegramCheck(file?: SessionFile, channels: string[] = [])
     await rememberTelegramCheck(file, { at: new Date().toISOString(), ok: false, note: message });
     throw new Error(`that connection no longer works — ${message}. Disconnect and connect again.`);
   } finally {
-    await client.disconnect().catch(() => undefined);
+    await letGo(client);
   }
+}
+
+/**
+ * Close a client so that nothing of it is left running.
+ *
+ * `disconnect()` is not that. gramJS starts a loop of its own on connect — a ping every nine seconds,
+ * meant for a client that listens for updates — and that loop stops only on `destroy()`. After a
+ * disconnect it carries on pinging a connection that is no longer there: every ping waits ten seconds,
+ * fails with `TIMEOUT`, prints its stack to stderr, and nine seconds later tries again, for the life of
+ * the process. One Telegram scraper read every ten minutes leaves six of those a hour behind it.
+ * Measured on a live worker: 137 thousand lines of `Error: TIMEOUT` in four hours, and nothing else.
+ *
+ * There is no option to not start the loop in this version (`receiveUpdates` is not one of its
+ * settings), so the only way to stop it is to destroy the client — which is what a client that only
+ * ever reads history should have been doing anyway. Bounded, because a client that will not let go
+ * must not hold up whoever is letting go of it.
+ */
+export async function letGo(client: { destroy?(): Promise<unknown>; disconnect(): Promise<unknown> }): Promise<void> {
+  const closing = (client.destroy ? client.destroy() : client.disconnect()).catch(() => undefined);
+  await Promise.race([closing, new Promise((resolve) => setTimeout(resolve, 10_000).unref())]);
 }
 
 export async function telegramForget(file: SessionFile = DEFAULT_SESSION_FILE): Promise<void> {
@@ -274,8 +294,14 @@ export async function telegramSendCode(input: {
   file?: SessionFile;
 }): Promise<{ sent: true }> {
   const client = new TelegramClient(new StringSession(''), input.apiId, input.apiHash, { connectionRetries: 3 });
-  await client.connect();
-  const { phoneCodeHash } = await client.sendCode({ apiId: input.apiId, apiHash: input.apiHash }, input.phone);
+  let phoneCodeHash: string;
+  try {
+    await client.connect();
+    ({ phoneCodeHash } = await client.sendCode({ apiId: input.apiId, apiHash: input.apiHash }, input.phone));
+  } catch (error) {
+    await letGo(client);
+    throw error;
+  }
   pending.set(`${input.file ?? DEFAULT_SESSION_FILE}|${input.phone}`, {
     client,
     apiId: input.apiId,
@@ -324,7 +350,7 @@ export async function telegramSignIn(input: {
     input.file,
   );
 
-  await client.disconnect();
+  await letGo(client);
   pending.delete(key);
   return { account };
 }
@@ -347,6 +373,8 @@ export interface TelegramRow extends Record<string, string | null> {
 export interface Reader {
   connect(): Promise<unknown>;
   disconnect(): Promise<unknown>;
+  /** What actually stops a gramJS client: see `letGo`. */
+  destroy?(): Promise<unknown>;
   getEntity(channel: string): Promise<unknown>;
   iterMessages(entity: unknown, options: { limit: number }): AsyncIterable<{ id: number; date: number; message?: string }>;
 }
@@ -355,8 +383,9 @@ export async function runTelegramRobot(
   robot: TelegramRobot,
   file?: SessionFile,
   instead?: { client: Reader },
+  signal?: AbortSignal,
 ): Promise<{ rows: TelegramRow[]; reason?: string }> {
-  if (instead) return walk(robot, instead.client);
+  if (instead) return walk(robot, instead.client, signal);
 
   const stored = await readStored(file);
   if (!stored) {
@@ -366,19 +395,26 @@ export async function runTelegramRobot(
   const client = new TelegramClient(new StringSession(stored.session), stored.apiId, stored.apiHash, {
     connectionRetries: 3,
   });
-  return walk(robot, client as unknown as Reader);
+  return walk(robot, client as unknown as Reader, signal);
 }
 
-async function walk(robot: TelegramRobot, client: Reader): Promise<{ rows: TelegramRow[]; reason?: string }> {
-  await client.connect();
+async function walk(robot: TelegramRobot, client: Reader, signal?: AbortSignal): Promise<{ rows: TelegramRow[]; reason?: string }> {
+  // A run that has been given up on lets go of its client there and then, rather than whenever the
+  // await it is stuck in comes back — which, for the await that got it given up on, is never.
+  const giveUp = () => void letGo(client);
+  signal?.addEventListener('abort', giveUp, { once: true });
 
   try {
+    // Inside the try, because gramJS starts its ping loop even on a connect that fails, and a client
+    // that failed to connect has to be let go of as much as one that read everything.
+    await client.connect();
     const rows: TelegramRow[] = [];
     const wanted = (robot.contains ?? []).map((word) => word.toLowerCase());
 
     const boundary = robot.since ? Date.parse(robot.since) : undefined;
 
     for (const channel of robot.channels) {
+      signal?.throwIfAborted();
       const entity = await client.getEntity(channel);
       for await (const message of client.iterMessages(entity, { limit: robot.limit })) {
         // Newest first, so the first message past the boundary ends this channel rather than
@@ -399,6 +435,7 @@ async function walk(robot: TelegramRobot, client: Reader): Promise<{ rows: Teleg
 
     return { rows };
   } finally {
-    await client.disconnect();
+    signal?.removeEventListener('abort', giveUp);
+    await letGo(client);
   }
 }
