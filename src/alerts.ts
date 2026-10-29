@@ -73,7 +73,7 @@ export type Telling = { say: string; about: string; kind: 'broken' | 'recovered'
  * notices: sending too often is a feature people turn off, and sending too rarely is a feature that
  * does not exist.
  */
-export function whatToSay(now: Standing, alerts: Alerts): Telling {
+export function whatToSay(now: Standing, alerts: Alerts, how: { urgent?: boolean } = {}): Telling {
   const after = alerts.after ?? DEFAULT_AFTER;
   const told = alerts.told?.[now.robot];
 
@@ -88,7 +88,8 @@ export function whatToSay(now: Standing, alerts: Alerts): Telling {
     };
   }
 
-  if (now.inARow < after) return undefined; // one bad run is weather, not a verdict
+  // One bad run is weather, not a verdict — unless it is one that had to be stopped. See do-run.ts.
+  if (now.inARow < after && !how.urgent) return undefined;
   if (told && told.status === now.status) return undefined; // already said, and nothing has changed since
 
   const trouble = now.door

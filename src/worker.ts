@@ -1,9 +1,11 @@
 import { closeDb } from './db.js';
+import { withDeadline } from './deadline.js';
 import { makePool, runForAccount } from './do-run.js';
 import { log } from './log.js';
 import { closeQueue, enqueue, keepLock, nextJob, releaseLock, takeLock, usingQueue, type Job } from './queue.js';
 import { loadRules, type SiteRule } from './rules.js';
 import { claimDue } from './schedule.js';
+import { describe, tellAboutWorker, touch, Watchdog } from './watchdog.js';
 
 /**
  * The process that runs what is due.
@@ -23,6 +25,10 @@ import { claimDue } from './schedule.js';
  * Nothing here retries. A run that failed is in the history with its reason, the owner has been told
  * if they asked to be, and the next tick will come round soon enough — a queue that retries a broken
  * selector four times just breaks it four times.
+ *
+ * Nothing here waits for ever, either. A run has a deadline and ends as broken when it passes it; a
+ * tick has one too; and a watchdog restarts the whole process when any part of it has gone quiet for
+ * longer than it said it would. See deadline.ts and watchdog.ts for the morning that taught us this.
  */
 const TICK_MS = Number(process.env['RATATOSK_TICK_MS'] ?? 30_000);
 
@@ -38,7 +44,31 @@ const TICK_MS = Number(process.env['RATATOSK_TICK_MS'] ?? 30_000);
  */
 const HANDS = Math.max(1, Number(process.env['RATATOSK_WORKERS'] ?? 1));
 
+/**
+ * How long one run may take before it is stopped and written down as broken.
+ *
+ * Generous on purpose: the longest honest walk measured is a property board at a little over twenty
+ * minutes, and a deadline that cuts honest walks short is a scraper that breaks every time it has a
+ * lot to read. What this is for is the run that is not walking at all — see deadline.ts.
+ */
+const RUN_MS = Number(process.env['RATATOSK_RUN_TIMEOUT_MS'] ?? 30 * 60_000);
+
+/** A tick is two short statements against Postgres and a push to Redis; five minutes is not a tick. */
+const TICK_TIMEOUT_MS = Number(process.env['RATATOSK_TICK_TIMEOUT_MS'] ?? 5 * 60_000);
+
+/**
+ * How long the worker may go without a tick that worked before it is considered stuck, and how long
+ * past its deadline a run may hold its hands — writing its history, keeping its rows — before the same.
+ */
+const STALE_MS = Number(process.env['RATATOSK_STALE_MS'] ?? 15 * 60_000);
+const GRACE_MS = 5 * 60_000;
+
+/** Read by the container's health check: see docker-compose.yml. */
+const HEARTBEAT = process.env['RATATOSK_HEARTBEAT'] ?? '/tmp/ratatosk-worker.alive';
+const WATCH_EVERY_MS = 60_000;
+
 let stopping = false;
+const watchdog = new Watchdog();
 
 /**
  * A browser dying must not take the worker with it.
@@ -65,10 +95,13 @@ async function tick(): Promise<void> {
   }
 }
 
-async function work(rules: SiteRule[]): Promise<void> {
+async function work(rules: SiteRule[], hand: string): Promise<void> {
   const pool = makePool();
 
   while (!stopping) {
+    // Waiting for a job takes five seconds at most, so a hand that is quiet for a quarter of an hour
+    // between jobs is a hand whose queue connection has stopped answering.
+    watchdog.beat(hand, STALE_MS, 'waiting for a job');
     let job: Job | undefined;
     try {
       job = await nextJob();
@@ -86,8 +119,9 @@ async function work(rules: SiteRule[]): Promise<void> {
     }
 
     const holding = keepLock(job);
+    watchdog.beat(hand, RUN_MS + GRACE_MS, `running ${job.scraper}`, job.userId);
     try {
-      const run = await runForAccount(job.userId, job.scraper, { pool, rules });
+      const run = await runForAccount(job.userId, job.scraper, { pool, rules, deadlineMs: RUN_MS });
       log(run.status === 'ok' ? 'info' : 'warn', 'worker ran', {
         robot: job.scraper,
         user: job.userId,
@@ -118,15 +152,22 @@ async function main(): Promise<void> {
   log('info', 'worker started', { tickMs: TICK_MS });
 
   const ticking = (async () => {
+    watchdog.beat('tick', STALE_MS, 'scheduling');
     while (!stopping) {
       try {
-        await tick();
+        await withDeadline('tick', TICK_TIMEOUT_MS, () => tick());
+        // Only a tick that worked counts as moving. One that fails every time — a database that has
+        // stopped answering — is a worker that schedules nothing, however busy it looks.
+        watchdog.beat('tick', STALE_MS, 'scheduling');
       } catch (error) {
         log('warn', 'tick failed', { why: message(error) });
       }
       await sleep(TICK_MS);
     }
   })();
+
+  const watching = setInterval(() => void watch(), WATCH_EVERY_MS);
+  watching.unref();
 
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => {
@@ -138,8 +179,32 @@ async function main(): Promise<void> {
   }
 
   log('info', 'worker hands', { hands: HANDS });
-  await Promise.all([ticking, ...Array.from({ length: HANDS }, () => work(rules))]);
+  await Promise.all([ticking, ...Array.from({ length: HANDS }, (_, index) => work(rules, `hand ${index + 1}`))]);
+  clearInterval(watching);
   await Promise.all([closeQueue(), closeDb()]);
+}
+
+/**
+ * Once a minute: is everything still moving? If so, the heartbeat is touched. If not, the owner is
+ * told and the process ends, and docker's `restart: unless-stopped` brings up a fresh one.
+ *
+ * Ending is the whole remedy, and it is deliberately not gentle: the await that is stuck will not come
+ * back to be cancelled, and a graceful stop would wait for it. Whatever was in flight is written off;
+ * the schedule has already moved on, so the next tick puts it back in line.
+ */
+async function watch(): Promise<void> {
+  const stuck = watchdog.stuck();
+  if (stuck.length === 0) {
+    await touch(HEARTBEAT).catch((error: unknown) => log('warn', 'heartbeat not written', { why: message(error) }));
+    return;
+  }
+
+  log('error', 'worker stuck', { stuck });
+  const owner = process.env['RATATOSK_OWNER'];
+  await withDeadline('telling the owner', 30_000, () =>
+    tellAboutWorker(describe(stuck), stuck, owner ? { owner } : {}),
+  ).catch((error: unknown) => log('warn', 'could not tell the owner', { why: message(error) }));
+  process.exit(1);
 }
 
 function sleep(ms: number): Promise<void> {
