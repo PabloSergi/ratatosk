@@ -144,6 +144,11 @@ services:
       # minutes must not wait behind one that takes half an hour. The per-scraper lock still keeps any
       # one of them from running twice.
       RATATOSK_WORKERS: ${RATATOSK_WORKERS:-3}
+      # How long one run may take before it is stopped and written down as broken. See src/deadline.ts.
+      RATATOSK_RUN_TIMEOUT_MS: ${RATATOSK_RUN_TIMEOUT_MS:-1800000}
+      # Who hears when the worker itself gets stuck — an account id. Unset: everyone with alerts set up.
+      RATATOSK_OWNER: ${RATATOSK_OWNER:-}
+      RATATOSK_HEARTBEAT: /tmp/ratatosk-worker.alive
       RATATOSK_MAX_BROWSERS: ${RATATOSK_WORKER_BROWSERS:-3}
       RATATOSK_PROFILES: /app/profiles
       RATATOSK_BROWSER_HOST: http://browser:5546
@@ -164,6 +169,16 @@ services:
       - ./rules:/app/rules:ro
       - browser-profiles:/app/profiles
       - account-secrets:/app/secrets
+    # "Up" is not the same as working: on 2026-10-29 this container stayed Up for four hours with
+    # every run frozen. The worker restarts itself when any part of it stops moving (src/watchdog.ts)
+    # and touches this file while everything does; a stale file means the process is too wedged even
+    # for that, and the check is what makes that visible in `docker compose ps` and in the logs view.
+    healthcheck:
+      test: ["CMD-SHELL", "test -n \"$$(find /tmp/ratatosk-worker.alive -mmin -15 2>/dev/null)\""]
+      interval: 1m
+      timeout: 10s
+      retries: 2
+      start_period: 3m
     mem_limit: 3g
     memswap_limit: 3g
     shm_size: 1g

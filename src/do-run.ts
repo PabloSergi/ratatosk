@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { alertsFileFor, readAlerts, tell, whatToSay, writeAlerts } from './alerts.js';
 import { BrowserPool } from './browsers.js';
+import { Overdue, withDeadline } from './deadline.js';
 import { openBrowser } from './drivers/patchright.js';
 import { historyFileFor, remember, standing } from './history.js';
 import { failure, log } from './log.js';
@@ -30,6 +31,12 @@ export interface RunOptions {
   pool: BrowserPool;
   rules: SiteRule[];
   maxPages?: number;
+  /**
+   * How long the scrape itself may take before it is stopped and written down as broken. Unset means
+   * for as long as it takes, which is right for a person watching a run they pressed and wrong for a
+   * worker nobody is watching: see deadline.ts.
+   */
+  deadlineMs?: number;
 }
 
 /**
@@ -145,6 +152,7 @@ export async function runForAccount(userId: string, name: string, options: RunOp
   };
 
   let run: RunResult;
+  let hung = false;
   try {
     /**
      * A robot that does not read pages must not wait on a browser, nor fail with one.
@@ -155,17 +163,32 @@ export async function runForAccount(userId: string, name: string, options: RunOp
      * fetch one URL over HTTPS. Measured while a batch of feeds died one after another behind a
      * browser that had gone bad an hour earlier.
      */
-    run = isBrowserRobot(robot)
-      ? await options.pool.use(poolKey(userId, robot.proxy), (session) =>
-          runRobot(robot, { page: async () => session.page, ...asked }),
-        )
-      : await runRobot(robot, {
-          page: async () => {
-            throw new Error(`${robot.name} does not read pages, so it has no browser to give`);
-          },
-          ...asked,
-        });
+    const scrape = (signal?: AbortSignal): Promise<RunResult> =>
+      isBrowserRobot(robot)
+        ? options.pool.use(poolKey(userId, robot.proxy), (session) =>
+            runRobot(robot, { page: async () => session.page, ...asked, ...(signal ? { signal } : {}) }),
+          )
+        : runRobot(robot, {
+            page: async () => {
+              throw new Error(`${robot.name} does not read pages, so it has no browser to give`);
+            },
+            ...asked,
+            ...(signal ? { signal } : {}),
+          });
+
+    run = options.deadlineMs
+      ? await withDeadline(robot.name, options.deadlineMs, (signal) => {
+          // A browser that a run has been given up on is closed under it: whatever the page was waiting
+          // for fails at once, the pool's turn for this account ends, and the next run opens a fresh
+          // one instead of queueing behind a walk that will never finish.
+          if (isBrowserRobot(robot)) {
+            signal.addEventListener('abort', () => void options.pool.close?.(poolKey(userId, robot.proxy)), { once: true });
+          }
+          return scrape(signal);
+        })
+      : await scrape();
   } catch (error) {
+    if (error instanceof Overdue) hung = true;
     run = {
       status: 'broken',
       rows: [],
@@ -220,7 +243,11 @@ export async function runForAccount(userId: string, name: string, options: RunOp
   // A scraper that says when it breaks says it to whoever opens the screen; one on a schedule breaks
   // at four in the morning and is found on Friday. So a run is also where the owner gets told —
   // once per breakage and once per recovery, and never for a single bad run.
-  await maybeTell(userId, robot.name);
+  //
+  // A run that had to be stopped is the exception to "never for a single bad run": a hang is not
+  // weather, and a scraper that hangs every time would otherwise take three of them — an hour and a
+  // half at the default deadline — before anybody heard.
+  await maybeTell(userId, robot.name, { urgent: hung });
 
   // The line an operator wants at four in the morning: which robot, what it returned, why not more.
   log(run.status === 'ok' ? 'info' : 'warn', 'robot ran', {
@@ -243,7 +270,7 @@ export async function runForAccount(userId: string, name: string, options: RunOp
  * worked must not be reported as failed because a bot did not answer. So a failure to tell is logged
  * and swallowed.
  */
-async function maybeTell(userId: string, robot: string): Promise<void> {
+async function maybeTell(userId: string, robot: string, how: { urgent?: boolean } = {}): Promise<void> {
   const file = alertsFileFor(userId);
   const alerts = await readAlerts(file);
   if (!alerts.botToken || !alerts.chatId) return;
@@ -251,7 +278,7 @@ async function maybeTell(userId: string, robot: string): Promise<void> {
   const now = (await standing(historyFileFor(userId))).find((entry) => entry.robot === robot);
   if (!now) return;
 
-  const telling = whatToSay(now, alerts);
+  const telling = whatToSay(now, alerts, how);
   if (!telling) return;
 
   try {
